@@ -81,7 +81,7 @@ function App() {
 
                 <div className="footer-section">
                     <p className="footer-title">CONTACT</p>
-                    <a href="#" className="terms-link">TERMENI ȘI CONDIȚII</a>
+                    <a href="/Termeni si conditii.pdf" className="terms-link">TERMENI ȘI CONDIȚII</a>
                 </div>
             </footer>
         </div>

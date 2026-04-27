@@ -1,0 +1,612 @@
+/**
+ * Source Panel Component
+ * Displays source citations and documents with expandable content
+ */
+
+// Get React hooks from window (loaded via CDN)
+
+// Unwrap metadata values that may be {value, includeForEmbedding} objects from the KB sidecar format
+const unwrap = (v) => (v && typeof v === 'object' && 'value' in v) ? v.value : v;
+
+// Format document type enum values to readable strings (e.g., "ADMINISTRATIVE_ORDER" → "Administrative Order")
+const formatDocumentType = (type) => {
+  const t = unwrap(type);
+  if (!t || typeof t !== 'string') return t;
+  return t.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+};
+
+// Map browser locale codes to language names for translation target
+const LOCALE_TO_LANGUAGE = {
+  'da': 'Danish', 'de': 'German', 'fr': 'French', 'nl': 'Dutch',
+  'pl': 'Polish', 'es': 'Spanish', 'it': 'Italian', 'pt': 'Portuguese',
+  'ro': 'Romanian', 'hu': 'Hungarian', 'cs': 'Czech', 'sk': 'Slovak',
+  'sl': 'Slovenian', 'hr': 'Croatian', 'bg': 'Bulgarian', 'el': 'Greek',
+  'fi': 'Finnish', 'sv': 'Swedish', 'et': 'Estonian', 'lv': 'Latvian',
+  'lt': 'Lithuanian', 'mt': 'Maltese', 'ga': 'Irish', 'en': 'English'
+};
+
+function getBrowserLanguage() {
+  const locale = (navigator.language || 'en').split('-')[0].toLowerCase();
+  return LOCALE_TO_LANGUAGE[locale] || 'English';
+}
+
+const SourcePanel = ({ sources = [], citations = [], artifacts = [], showMobile = false, onMobileClose, onClose = null, expandSourceKey = null, onSourceExpanded = null, queryLanguage = null, onSaveToLibrary = null, activeTab: activeTabProp = null, onActiveTabChange = null }) => {
+  // sources is now an array of { responseNumber, sources: [], isLegacy? }
+  // artifacts is an array of { responseNumber, artifacts: [] }
+  // Check if we have any sources with URLs across all response groups OR any artifacts
+  const hasContent = sources.some(group =>
+    group.sources && group.sources.some(source => unwrap(source.source_url))
+  ) || (Array.isArray(artifacts) && artifacts.some(g => g.artifacts && g.artifacts.length > 0));
+
+  // State to track which sources are expanded
+  const [expandedSources, setExpandedSources] = React.useState({});
+  const [expandedPassages, setExpandedPassages] = React.useState({});
+  // Track which artifact cards are expanded (keyed by artifactId)
+  const [expandedArtifacts, setExpandedArtifacts] = React.useState({});
+  // Per-artifact Word export + save-to-library state (keyed by artifactId)
+  const [exportingArtifacts, setExportingArtifacts] = React.useState({});
+  const [savingArtifacts, setSavingArtifacts] = React.useState({});
+  const [savedArtifacts, setSavedArtifacts] = React.useState({});
+  // Active tab: 'sources' or 'artifacts'.
+  // Controlled by parent when activeTabProp/onActiveTabChange are provided,
+  // otherwise falls back to internal state (backwards compat).
+  const [internalActiveTab, setInternalActiveTab] = React.useState('sources');
+  const activeTab = activeTabProp !== null ? activeTabProp : internalActiveTab;
+  const setActiveTab = onActiveTabChange || setInternalActiveTab;
+  // Translation state: { passageKey: { text, loading, error, showTranslation } }
+  const [translatedPassages, setTranslatedPassages] = React.useState({});
+
+  // Does this session have any artifacts to render? Drives whether we show the tabs.
+  // Artifacts arriving from chat-history reload are stubs without `content` —
+  // content is ephemeral and only rendered when fresh from the current turn's SSE
+  // stream. Content-less stubs are filtered out before rendering.
+  const hasArtifacts = Array.isArray(artifacts) && artifacts.some(g =>
+    g.artifacts && g.artifacts.some(a => a && a.content)
+  );
+
+
+  // State for panel width (resizable)
+  const [panelWidth, setPanelWidth] = React.useState(() => {
+    const saved = localStorage.getItem('sourcePanelWidth');
+    return saved ? parseInt(saved, 10) : 350;
+  });
+  const [isResizing, setIsResizing] = React.useState(false);
+  const panelRef = React.useRef(null);
+
+  // Reset expanded state when switching chats (sources array completely changes)
+  const sourcesKey = sources.map(g => g?.responseNumber || 0).join(',');
+  React.useEffect(() => {
+    setExpandedSources({});
+  }, [sourcesKey]);
+
+  // Handle external expand request (from inline citation click or artifact pill click).
+  // Only depends on expandSourceKey — onSourceExpanded is called as a fire-and-forget
+  // callback, not a reactive dependency. Including it in deps caused spurious re-runs
+  // (inline arrow = new ref every render) that could race with the expansion.
+  React.useEffect(() => {
+    if (expandSourceKey) {
+      if (expandSourceKey.startsWith('artifact-')) {
+        const artifactId = expandSourceKey.substring('artifact-'.length);
+        setExpandedArtifacts({ [artifactId]: true });
+        setActiveTab('artifacts');
+      } else {
+        setExpandedSources({ [expandSourceKey]: true });
+        setExpandedPassages(prev => ({ ...prev, [`${expandSourceKey}-passage`]: true }));
+        setActiveTab('sources');
+      }
+      if (onSourceExpanded) {
+        onSourceExpanded();
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandSourceKey]);
+
+  // Resize handlers
+  const handleResizeStart = React.useCallback((e) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  React.useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e) => {
+      if (panelRef.current) {
+        const containerRight = panelRef.current.parentElement.getBoundingClientRect().right;
+        const newWidth = containerRight - e.clientX;
+        // Allow panel to extend up to 50% of viewport width
+        const maxWidth = window.innerWidth * 0.5;
+        const clampedWidth = Math.max(250, Math.min(maxWidth, newWidth));
+        setPanelWidth(clampedWidth);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      localStorage.setItem('sourcePanelWidth', panelWidth.toString());
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, panelWidth]);
+
+  // Resolve target language: prefer queryLanguage from chat pipeline, fall back to browser locale
+  const targetLanguage = queryLanguage || getBrowserLanguage();
+
+  // Handle passage translation — uses functional setState to avoid stale closure
+  const handleTranslate = React.useCallback(async (passageKey, text) => {
+    // Check current state via functional update pattern to avoid stale closure
+    let alreadyTranslated = false;
+    setTranslatedPassages(prev => {
+      const state = prev[passageKey];
+      if (state && state.text) {
+        alreadyTranslated = true;
+        return { ...prev, [passageKey]: { ...state, showTranslation: !state.showTranslation } };
+      }
+      return prev;
+    });
+    if (alreadyTranslated) return;
+
+    // Start loading
+    setTranslatedPassages(prev => ({
+      ...prev,
+      [passageKey]: { text: null, loading: true, error: null, showTranslation: true }
+    }));
+    try {
+      console.log('[translate] Calling API:', { passageKey, targetLanguage, textLength: text.length });
+      const result = await window.apiService.translatePassage(text, targetLanguage);
+      console.log('[translate] Success:', { translatedLength: result.translatedText?.length });
+      setTranslatedPassages(prev => ({
+        ...prev,
+        [passageKey]: { text: result.translatedText, loading: false, error: null, showTranslation: true }
+      }));
+    } catch (err) {
+      console.error('[translate] Error:', err);
+      setTranslatedPassages(prev => ({
+        ...prev,
+        [passageKey]: { text: null, loading: false, error: err.message || 'Translation failed', showTranslation: true }
+      }));
+    }
+  }, [targetLanguage]);
+
+  return React.createElement('div', {
+    ref: panelRef,
+    className: showMobile ? 'source-panel mobile-show' : 'source-panel',
+    style: showMobile ? {} : { width: panelWidth + 'px' }
+  },
+    // Mobile close button
+    showMobile && onMobileClose && React.createElement('button', {
+      className: 'mobile-close-button',
+      onClick: onMobileClose,
+      'aria-label': 'Close panel'
+    }, React.createElement('i', { className: 'fas fa-times' })),
+
+    // Resize handle with drag grip
+    !showMobile && React.createElement('div', {
+      className: 'source-panel-resize-handle' + (isResizing ? ' resizing' : ''),
+      onMouseDown: handleResizeStart
+    },
+      React.createElement('div', { className: 'resize-grip' })
+    ),
+    // Scrollable inner wrapper — keeps the resize handle (outside this div)
+    // anchored to the panel edge instead of scrolling with the content.
+    React.createElement('div', { className: 'source-panel-inner' },
+    // Desktop close button (X) — only on desktop when onClose is provided
+    !showMobile && onClose && React.createElement('button', {
+      className: 'source-panel-close-btn',
+      onClick: onClose,
+      'aria-label': 'Close panel',
+      title: 'Close'
+    }, '\u2715'),
+    // Panel header: tabs when artifacts exist, plain title otherwise
+    hasArtifacts
+      ? React.createElement('div', {
+          className: 'source-panel-tabs'
+        },
+          React.createElement('button', {
+            className: `source-panel-tab ${activeTab === 'sources' ? 'active' : ''}`,
+            onClick: () => setActiveTab('sources')
+          }, 'Sources & Citations'),
+          React.createElement('button', {
+            className: `source-panel-tab ${activeTab === 'artifacts' ? 'active' : ''}`,
+            onClick: () => setActiveTab('artifacts')
+          }, 'Documents')
+        )
+      : React.createElement('h3', null, 'Sources & Citations'),
+
+    !hasContent
+      ? React.createElement('div', {
+          className: 'source-empty-state'
+        }, 'Sources and citations will appear here when you ask questions about legal documents.')
+      : null,
+
+    // Render response groups in chronological order (Response 1 at top) — only when on the sources tab
+    hasContent && activeTab === 'sources' && sources.map((responseGroup, idx) => {
+      const responseKey = `response-${responseGroup.responseNumber}`;
+      const allSources = responseGroup.sources || [];
+      // Preserve the original index in the FULL sources array so keys match
+      // the `data-source-index` values produced by inline [n] citation markers
+      // in markdown.js (which use the raw source array position, not filtered).
+      const sourcesWithUrls = allSources
+        .map((source, originalIndex) => ({ source, originalIndex }))
+        .filter(({ source }) => unwrap(source.source_url));
+
+      if (sourcesWithUrls.length === 0) return null;
+
+      // Toggle a specific source when its favicon is clicked (only one open at a time)
+      const toggleSource = (originalIndex, e) => {
+        e.stopPropagation();
+        const sourceKey = `${responseKey}-source-${originalIndex}`;
+        setExpandedSources(prev => {
+          // If clicking the same one that's open, close it
+          if (prev[sourceKey]) {
+            return {};
+          }
+          // Otherwise, close all and open just this one
+          return { [sourceKey]: true };
+        });
+      };
+
+      // Get domain for each source (for favicons). Collapse deep subdomains to the
+      // registrable root so Google's favicon service doesn't 404.
+      const sourcesWithDomains = sourcesWithUrls.map(({ source, originalIndex }) => {
+        let domain = '';
+        try { domain = window.getFaviconDomain(new URL(unwrap(source.source_url)).hostname); } catch {}
+        return { source, idx: originalIndex, domain };
+      });
+
+      return React.createElement('div', {
+        key: responseKey,
+        className: 'response-group'
+      },
+        // Response header - clickable favicons on left, + toggle on right
+        React.createElement('div', {
+          className: 'response-group-header'
+        },
+          // Favicons container - each favicon is clickable
+          React.createElement('div', {
+            className: 'favicon-container'
+          },
+            sourcesWithDomains.map(({ source, idx, domain }) =>
+              React.createElement('div', {
+                key: `${responseKey}-favicon-${idx}`,
+                onClick: (e) => toggleSource(idx, e),
+                title: unwrap(source.journal_number) || unwrap(source.title) || domain,
+                className: `favicon-wrapper${expandedSources[`${responseKey}-source-${idx}`] ? ' active' : ''}`
+              },
+                React.createElement('img', {
+                  src: `https://www.google.com/s2/favicons?domain=${domain}&sz=64`,
+                  alt: unwrap(source.journal_number) || unwrap(source.title) || domain,
+                  className: 'favicon-small',
+                  onError: (e) => {
+                    if (!e.target.dataset.fallbackTried) {
+                      e.target.dataset.fallbackTried = 'true';
+                      e.target.src = `https://icons.duckduckgo.com/ip3/${domain}.ico`;
+                    } else {
+                      e.target.parentElement.style.display = 'none';
+                    }
+                  }
+                })
+              )
+            )
+          )
+        ),
+        // Individual citation content - shown when a favicon is clicked (with smooth animation)
+        sourcesWithUrls.map(({ source, originalIndex }) => {
+          const sourceIdx = originalIndex;
+          const sourceKey = `${responseKey}-source-${sourceIdx}`;
+          const isSourceExpanded = expandedSources[sourceKey] || false;
+          return React.createElement('div', {
+            key: sourceKey,
+            className: `citation-content-box ${isSourceExpanded ? 'expanded' : 'collapsed'}`
+          },
+            React.createElement('div', {
+              className: 'citation-inner'
+            },
+              // Header with title (clickable if source_url exists)
+              React.createElement('div', {
+                className: 'citation-header'
+              },
+                React.createElement('span', { className: 'citation-meta-label citation-title-label' }, 'Title'),
+                (() => {
+                  const titleText = (unwrap(source.title) || 'Source').replace(/\\n|[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+                  return unwrap(source.source_url)
+                    ? React.createElement('a', {
+                        href: unwrap(source.source_url),
+                        target: '_blank',
+                        rel: 'noopener noreferrer',
+                        className: 'citation-title citation-title-link'
+                      }, titleText)
+                    : React.createElement('span', {
+                        className: 'citation-title'
+                      }, titleText);
+                })()
+              ),
+              // Metadata section
+              React.createElement('div', {
+                className: 'citation-metadata'
+              },
+                // Journal number (e.g., "OJ L 119/1")
+                unwrap(source.journal_number) && React.createElement('div', {
+                  className: 'citation-meta-item'
+                },
+                  React.createElement('span', { className: 'citation-meta-label' }, 'Reference'),
+                  React.createElement('span', { className: 'citation-meta-value' }, unwrap(source.journal_number))
+                ),
+                // CELEX number
+                unwrap(source.celex_number) && React.createElement('div', {
+                  className: 'citation-meta-item'
+                },
+                  React.createElement('span', { className: 'citation-meta-label' }, 'CELEX'),
+                  React.createElement('span', { className: 'citation-meta-value' }, unwrap(source.celex_number))
+                ),
+                // ELI
+                unwrap(source.eli) && React.createElement('div', {
+                  className: 'citation-meta-item'
+                },
+                  React.createElement('span', { className: 'citation-meta-label' }, 'ELI'),
+                  React.createElement('span', { className: 'citation-meta-value' }, unwrap(source.eli))
+                ),
+                // ECLI
+                unwrap(source.ecli) && React.createElement('div', {
+                  className: 'citation-meta-item'
+                },
+                  React.createElement('span', { className: 'citation-meta-label' }, 'ECLI'),
+                  React.createElement('span', { className: 'citation-meta-value' }, unwrap(source.ecli))
+                ),
+                // Case number
+                unwrap(source.case_number) && React.createElement('div', {
+                  className: 'citation-meta-item'
+                },
+                  React.createElement('span', { className: 'citation-meta-label' }, 'Case'),
+                  React.createElement('span', { className: 'citation-meta-value' }, unwrap(source.case_number))
+                ),
+                // Jurisdiction
+                unwrap(source.jurisdiction) && React.createElement('div', {
+                  className: 'citation-meta-item'
+                },
+                  React.createElement('span', { className: 'citation-meta-label' }, 'Jurisdiction'),
+                  React.createElement('span', { className: 'citation-meta-value citation-jurisdiction' }, unwrap(source.jurisdiction))
+                ),
+                // Document type
+                unwrap(source.document_type) && React.createElement('div', {
+                  className: 'citation-meta-item'
+                },
+                  React.createElement('span', { className: 'citation-meta-label' }, 'Type'),
+                  React.createElement('span', { className: 'citation-meta-value' }, formatDocumentType(source.document_type))
+                ),
+                // Legal area
+                unwrap(source.legal_area) && React.createElement('div', {
+                  className: 'citation-meta-item'
+                },
+                  React.createElement('span', { className: 'citation-meta-label' }, 'Legal Area'),
+                  React.createElement('span', { className: 'citation-meta-value' }, unwrap(source.legal_area))
+                ),
+                // Date (prefer verdict_date for judgments, then signature_date, then publication_date, then year)
+                (unwrap(source.verdict_date) || unwrap(source.signature_date) || unwrap(source.publication_date) || unwrap(source.year)) && React.createElement('div', {
+                  className: 'citation-meta-item'
+                },
+                  React.createElement('span', { className: 'citation-meta-label' }, unwrap(source.verdict_date) ? 'Verdict Date' : unwrap(source.signature_date) ? 'Signed' : unwrap(source.publication_date) ? 'Published' : 'Year'),
+                  React.createElement('span', { className: 'citation-meta-value' }, unwrap(source.verdict_date) || unwrap(source.signature_date) || unwrap(source.publication_date) || unwrap(source.year))
+                ),
+                // Status (in force / treatment status)
+                unwrap(source.treatment_status) && unwrap(source.treatment_status) !== 'unknown' && React.createElement('div', {
+                  className: 'citation-meta-item'
+                },
+                  React.createElement('span', { className: 'citation-meta-label' }, 'Status'),
+                  React.createElement('span', { className: 'citation-meta-value' }, formatDocumentType(source.treatment_status))
+                ),
+                // Page number (if available)
+                unwrap(source.page_number) && React.createElement('div', {
+                  className: 'citation-meta-item'
+                },
+                  React.createElement('span', { className: 'citation-meta-label' }, 'Page'),
+                  React.createElement('span', { className: 'citation-meta-value' }, unwrap(source.page_number))
+                ),
+                // Article number (if available)
+                unwrap(source.article_number) && React.createElement('div', {
+                  className: 'citation-meta-item'
+                },
+                  React.createElement('span', { className: 'citation-meta-label' }, 'Article'),
+                  React.createElement('span', { className: 'citation-meta-value' }, unwrap(source.article_number))
+                ),
+                // Section header (if available)
+                unwrap(source.section_header) && React.createElement('div', {
+                  className: 'citation-meta-item citation-meta-section'
+                },
+                  React.createElement('span', { className: 'citation-meta-label' }, 'Section'),
+                  React.createElement('span', { className: 'citation-meta-value' }, unwrap(source.section_header))
+                ),
+                // View Source link at the bottom
+                unwrap(source.source_url) && React.createElement('div', {
+                  className: 'citation-meta-item'
+                },
+                  React.createElement('span', { className: 'citation-meta-label' }, 'Source'),
+                  React.createElement('a', {
+                    href: unwrap(source.source_url),
+                    target: '_blank',
+                    rel: 'noopener noreferrer',
+                    className: 'citation-link'
+                  },
+                    React.createElement('i', { className: 'fas fa-external-link-alt icon-xs' }),
+                    'View'
+                  )
+                ),
+              ),
+              // Extracted passage preview — collapsed by default, toggle on click
+              unwrap(source.text) && (() => {
+                const passageKey = `${sourceKey}-passage`;
+                const isOpen = expandedPassages[passageKey] || false;
+                const txt = (unwrap(source.text) || '').trim();
+                const transState = translatedPassages[passageKey];
+                const showingTranslation = transState && transState.showTranslation && transState.text;
+                return React.createElement('div', {
+                  className: 'citation-passage-preview'
+                },
+                  React.createElement('div', {
+                    className: 'citation-passage-label',
+                    onClick: (e) => { e.stopPropagation(); setExpandedPassages(prev => ({ ...prev, [passageKey]: !prev[passageKey] })); },
+                    style: { cursor: 'pointer', userSelect: 'none' }
+                  },
+                    React.createElement('span', { style: { marginRight: '0.4em', fontWeight: 'bold', display: 'inline-block', width: '0.7em' } }, isOpen ? '\u2212' : '+'),
+                    'Retrieved passage',
+                    // Translate button — always available when passage is open
+                    isOpen && React.createElement('button', {
+                      className: 'translate-passage-btn' + (showingTranslation ? ' active' : ''),
+                      onClick: (e) => { e.stopPropagation(); handleTranslate(passageKey, txt); },
+                      title: showingTranslation ? 'Show original' : `Translate to ${targetLanguage}`,
+                      disabled: transState && transState.loading
+                    },
+                      transState && transState.loading
+                        ? React.createElement('i', { className: 'fas fa-spinner fa-spin' })
+                        : React.createElement('i', { className: 'fas fa-language' }),
+                      ' ',
+                      showingTranslation ? 'Translated' : 'Original'
+                    )
+                  ),
+                  isOpen && React.createElement('div', { className: 'citation-passage-text' },
+                    showingTranslation ? transState.text : txt
+                  ),
+                  isOpen && transState && transState.error && React.createElement('div', {
+                    className: 'translate-error'
+                  }, transState.error)
+                );
+              })()
+            )
+          );
+        })
+      );
+    }),
+
+    // Generated documents panel — only rendered when on the artifacts tab.
+    // Shows each artifact with its full content rendered as markdown (same
+    // visual style as chat messages).
+    hasArtifacts && activeTab === 'artifacts' && React.createElement('div', {
+      key: 'artifacts-section',
+      className: 'artifacts-section'
+    },
+      artifacts.map((group) => {
+        if (!group || !Array.isArray(group.artifacts) || group.artifacts.length === 0) return null;
+        // Drop content-less stubs (reloaded from chat history) — nothing to render.
+        const renderable = group.artifacts.filter(a => a && a.content);
+        if (renderable.length === 0) return null;
+        return renderable.map((artifact) => {
+          const artifactId = artifact.artifactId;
+          const expanded = !!expandedArtifacts[artifactId];
+          const isExporting = !!exportingArtifacts[artifactId];
+          const isSaving = !!savingArtifacts[artifactId];
+          const isSaved = !!savedArtifacts[artifactId];
+          const toggleArtifact = () => {
+            setExpandedArtifacts(prev => ({
+              ...prev,
+              [artifactId]: !prev[artifactId]
+            }));
+          };
+          const handleExport = async (e) => {
+            e.stopPropagation();
+            if (isExporting) return;
+            setExportingArtifacts(prev => ({ ...prev, [artifactId]: true }));
+            try {
+              if (window.exportToWord) {
+                await window.exportToWord(artifact.content, [], artifact.title);
+              } else {
+                console.error('exportToWord utility not loaded');
+              }
+            } finally {
+              setExportingArtifacts(prev => ({ ...prev, [artifactId]: false }));
+            }
+          };
+          const handleSave = async (e) => {
+            e.stopPropagation();
+            if (isSaving || isSaved) return;
+            if (!window.apiService || !window.apiService.saveArtifactToLibrary) {
+              console.error('apiService.saveArtifactToLibrary not available');
+              return;
+            }
+            setSavingArtifacts(prev => ({ ...prev, [artifactId]: true }));
+            try {
+              await window.apiService.saveArtifactToLibrary(
+                artifact.title,
+                artifact.content,
+                artifact.documentType
+              );
+              setSavedArtifacts(prev => ({ ...prev, [artifactId]: true }));
+            } catch (err) {
+              console.error('Failed to save artifact to library:', err);
+            } finally {
+              setSavingArtifacts(prev => ({ ...prev, [artifactId]: false }));
+            }
+          };
+          const docTypeLabel = (artifact.documentType || 'other').replace(/^\w/, c => c.toUpperCase());
+          const renderedContent = window.parseMarkdown
+            ? window.parseMarkdown(artifact.content)
+            : (artifact.content || '').replace(/</g, '&lt;').replace(/\n/g, '<br>');
+          const saveBtnClass = 'artifact-card-action-btn save' + (isSaved ? ' saved' : ' unsaved');
+          return React.createElement('div', {
+            key: artifactId,
+            className: `artifact-card ${expanded ? 'expanded' : 'collapsed'}`
+          },
+            React.createElement('div', {
+              className: 'artifact-card-header',
+              onClick: toggleArtifact
+            },
+              React.createElement('i', { className: `fas fa-file-alt artifact-card-icon` }),
+              React.createElement('div', { className: 'artifact-card-meta' },
+                React.createElement('div', { className: 'artifact-card-title' }, artifact.title),
+                React.createElement('div', { className: 'artifact-card-type' },
+                  docTypeLabel,
+                  React.createElement('span', {
+                    className: isSaved ? 'artifact-saved-badge' : 'artifact-unsaved-badge'
+                  }, isSaved ? 'Saved to Library' : 'Unsaved draft')
+                )
+              ),
+              // Action buttons — Export to Word + Save to Documents
+              React.createElement('div', { className: 'artifact-card-actions' },
+                React.createElement('button', {
+                  className: 'artifact-card-action-btn',
+                  onClick: handleExport,
+                  title: isExporting ? 'Exporting...' : 'Export to Word',
+                  disabled: isExporting
+                }, React.createElement('i', {
+                  className: `${isExporting ? 'fas fa-spinner fa-spin' : 'fas fa-file-word'} icon-transition`
+                })),
+                React.createElement('button', {
+                  className: saveBtnClass,
+                  onClick: handleSave,
+                  title: isSaved ? 'Saved to Library' : (isSaving ? 'Saving...' : 'Save to Library — keep this document'),
+                  disabled: isSaving || isSaved
+                }, React.createElement('i', {
+                  className: `${isSaved ? 'fas fa-check' : (isSaving ? 'fas fa-spinner fa-spin' : 'fas fa-folder-plus')} icon-transition`
+                }))
+              ),
+              React.createElement('i', {
+                className: `fas ${expanded ? 'fa-chevron-up' : 'fa-chevron-down'} artifact-card-chevron`
+              })
+            ),
+            expanded && React.createElement('div', {
+              className: 'artifact-card-content ai-message',
+              onMouseDown: (e) => {
+                if (e.button !== 0) return;
+                const link = e.target.closest('a[href]');
+                if (link) {
+                  e.preventDefault();
+                  window.open(link.href, '_blank', 'noopener,noreferrer');
+                }
+              },
+              dangerouslySetInnerHTML: { __html: renderedContent }
+            })
+          );
+        });
+      })
+    )
+    ) // end source-panel-inner wrapper
+  );
+};
+
+// Export to window
+window.SourcePanel = SourcePanel;

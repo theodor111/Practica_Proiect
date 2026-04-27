@@ -1,0 +1,655 @@
+/**
+ * Chat History Component
+ * Tree view with folder management, drag-and-drop, and resizable panel.
+ * Reuses .document-library-tree-* CSS classes for visual parity with DocumentLibrary.
+ * The "document-library-" prefix is a naming artifact, not a semantic boundary —
+ * these are generic tree-view styles shared by both panels.
+ */
+
+const CHAT_ROOT_FOLDER_ID = 'root';
+
+const ChatHistory = ({
+  chatTreeData = {}, expandedFolders = new Set(), loading = false,
+  onToggleFolder, onCreateFolder, onRenameFolder, onDeleteFolder,
+  onMoveItem, onRenameSession, onDeleteSession,
+  onSelectSession, currentSessionId, isStreaming,
+  onClearCurrentSession,
+  showMobile = false, onMobileClose
+}) => {
+  // Pinning (localStorage-only)
+  const [pinnedSessions, setPinnedSessions] = React.useState(new Set());
+  const [pinnedTimestamps, setPinnedTimestamps] = React.useState({});
+
+  // Inline rename
+  const [editingId, setEditingId] = React.useState(null);
+  const [editName, setEditName] = React.useState('');
+  const [editIsFolder, setEditIsFolder] = React.useState(false);
+  const [editParentId, setEditParentId] = React.useState(null);
+
+  // Create folder
+  const [creatingFolderIn, setCreatingFolderIn] = React.useState(null);
+  const [newFolderName, setNewFolderName] = React.useState('');
+
+  // Delete confirmation
+  const [deleteConfirmation, setDeleteConfirmation] = React.useState({
+    show: false, itemId: null, name: null, isFolder: false, parentId: null
+  });
+  const deleteConfirmationRef = React.useRef(deleteConfirmation);
+  React.useEffect(() => { deleteConfirmationRef.current = deleteConfirmation; }, [deleteConfirmation]);
+
+  // Drag-and-drop
+  const [dropTargetId, setDropTargetId] = React.useState(null);
+  const [draggingItem, setDraggingItem] = React.useState(null);
+
+  // Guards and refs
+  const savingRef = React.useRef(false);
+  const newFolderInputRef = React.useRef(null);
+
+  // Resize state (shares width with DocumentLibrary via same localStorage key)
+  const [panelWidth, setPanelWidth] = React.useState(() => {
+    const saved = localStorage.getItem('documentLibraryWidth');
+    return saved ? parseInt(saved, 10) : 260;
+  });
+  const [isResizing, setIsResizing] = React.useState(false);
+  const panelWidthRef = React.useRef(panelWidth);
+  const panelRef = React.useRef(null);
+
+  // Load pinned sessions from localStorage on mount
+  React.useEffect(() => {
+    const saved = localStorage.getItem('pinnedChats');
+    const savedTimestamps = localStorage.getItem('pinnedTimestamps');
+    if (saved) {
+      try {
+        const ids = JSON.parse(saved);
+        setPinnedSessions(new Set(ids));
+        if (savedTimestamps) {
+          setPinnedTimestamps(JSON.parse(savedTimestamps));
+        } else {
+          const timestamps = {};
+          const now = Date.now();
+          ids.forEach((sessionId, index) => {
+            timestamps[sessionId] = now + index;
+          });
+          setPinnedTimestamps(timestamps);
+          localStorage.setItem('pinnedTimestamps', JSON.stringify(timestamps));
+        }
+      } catch (e) {
+        console.error('Error loading pinned chats:', e);
+      }
+    }
+  }, []);
+
+  // --- Resize handlers ---
+  const handleResizeStart = React.useCallback((e) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  React.useEffect(() => {
+    if (!isResizing) return;
+    const handleMouseMove = (e) => {
+      if (panelRef.current) {
+        const panelLeft = panelRef.current.getBoundingClientRect().left;
+        const newWidth = e.clientX - panelLeft;
+        const maxWidth = window.innerWidth * 0.5;
+        const clampedWidth = Math.max(200, Math.min(maxWidth, newWidth));
+        panelRef.current.style.width = clampedWidth + 'px';
+        panelWidthRef.current = clampedWidth;
+      }
+    };
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      setPanelWidth(panelWidthRef.current);
+      localStorage.setItem('documentLibraryWidth', panelWidthRef.current.toString());
+    };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
+
+  // --- Helpers ---
+  const validateFolderName = (name) => {
+    if (name.length > 100) return 'Folder name cannot exceed 100 characters';
+    if (!/^[\p{L}\p{N}_ \-()]+$/u.test(name)) return 'Folder name can only contain letters, digits, spaces, hyphens, underscores, and parentheses';
+    if (name === '.' || name === '..') return 'Invalid name';
+    return null;
+  };
+
+  const validateSessionTitle = (title) => {
+    if (title.length > 200) return 'Title cannot exceed 200 characters';
+    return null;
+  };
+
+  // Render VS Code-style vertical indent guide lines
+  const renderGuides = (depth) => {
+    if (depth === 0) return null;
+    return React.createElement('div', {
+      className: 'document-library-indent-guides',
+      'aria-hidden': 'true'
+    },
+      Array.from({ length: depth }, (_, i) =>
+        React.createElement('span', { key: i, className: 'document-library-indent-guide' })
+      )
+    );
+  };
+
+  // --- Rename ---
+  const startRename = (item, parentId) => {
+    setEditingId(item.id);
+    setEditName(item.type === 'folder' ? item.name : (item.title || 'Untitled Chat'));
+    setEditIsFolder(item.type === 'folder');
+    setEditParentId(parentId);
+  };
+
+  const saveRename = async (itemId) => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    try {
+      const trimmed = editName.trim();
+      if (trimmed) {
+        if (editIsFolder) {
+          const error = validateFolderName(trimmed);
+          if (error) { cancelRename(); alert(error); return; }
+          if (onRenameFolder) await onRenameFolder(itemId, trimmed, editParentId);
+        } else {
+          const error = validateSessionTitle(trimmed);
+          if (error) { cancelRename(); alert(error); return; }
+          if (onRenameSession) await onRenameSession(itemId, trimmed, editParentId);
+        }
+      }
+      cancelRename();
+    } finally {
+      savingRef.current = false;
+    }
+  };
+
+  const cancelRename = () => {
+    setEditingId(null);
+    setEditName('');
+    setEditIsFolder(false);
+    setEditParentId(null);
+  };
+
+  // --- Create folder ---
+  const startCreateFolder = (parentId) => {
+    if (parentId !== CHAT_ROOT_FOLDER_ID && onToggleFolder && !expandedFolders.has(parentId)) {
+      onToggleFolder(parentId);
+    }
+    setCreatingFolderIn(parentId);
+    setNewFolderName('');
+  };
+
+  const saveNewFolder = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    try {
+      const trimmed = newFolderName.trim();
+      if (trimmed) {
+        const error = validateFolderName(trimmed);
+        if (error) { setCreatingFolderIn(null); setNewFolderName(''); alert(error); return; }
+        if (onCreateFolder) await onCreateFolder(trimmed, creatingFolderIn);
+      }
+      setCreatingFolderIn(null);
+      setNewFolderName('');
+    } finally {
+      savingRef.current = false;
+    }
+  };
+
+  const cancelCreateFolder = () => {
+    setCreatingFolderIn(null);
+    setNewFolderName('');
+  };
+
+  React.useEffect(() => {
+    if (creatingFolderIn !== null && newFolderInputRef.current) {
+      newFolderInputRef.current.focus();
+    }
+  }, [creatingFolderIn]);
+
+  // --- Delete ---
+  const startDelete = (itemId, name, isFolder, parentId) => {
+    setDeleteConfirmation({ show: true, itemId, name, isFolder, parentId });
+  };
+
+  const cancelDelete = () => {
+    setDeleteConfirmation({ show: false, itemId: null, name: null, isFolder: false, parentId: null });
+  };
+
+  const confirmDelete = async () => {
+    const { itemId, isFolder, parentId } = deleteConfirmationRef.current;
+    if (itemId) {
+      if (isFolder && onDeleteFolder) {
+        await onDeleteFolder(itemId, parentId);
+      } else if (!isFolder && onDeleteSession) {
+        await onDeleteSession(itemId, parentId);
+      }
+    }
+    setDeleteConfirmation({ show: false, itemId: null, name: null, isFolder: false, parentId: null });
+  };
+
+  // Keyboard support for delete modal
+  React.useEffect(() => {
+    if (deleteConfirmation.show) {
+      const handleKeyDown = (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); confirmDelete(); }
+        else if (e.key === 'Escape') { e.preventDefault(); cancelDelete(); }
+      };
+      document.addEventListener('keydown', handleKeyDown);
+      setTimeout(() => {
+        const overlay = document.querySelector('.delete-confirmation-overlay');
+        if (overlay) overlay.focus();
+      }, 100);
+      return () => document.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [deleteConfirmation.show]);
+
+  // --- Pin ---
+  const handlePin = (sessionId) => {
+    const wasPinned = pinnedSessions.has(sessionId);
+    setPinnedSessions(prev => {
+      const next = new Set(prev);
+      if (wasPinned) next.delete(sessionId); else next.add(sessionId);
+      localStorage.setItem('pinnedChats', JSON.stringify([...next]));
+      return next;
+    });
+    setPinnedTimestamps(prev => {
+      const next = { ...prev };
+      if (wasPinned) delete next[sessionId]; else next[sessionId] = Date.now();
+      localStorage.setItem('pinnedTimestamps', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  // --- Drag-and-drop ---
+  const handleItemDragStart = (e, item, parentId) => {
+    e.dataTransfer.setData('application/x-chat-move', JSON.stringify({
+      itemId: item.id,
+      type: item.type,
+      name: item.type === 'folder' ? item.name : (item.title || 'Untitled Chat'),
+      parentId: parentId
+    }));
+    e.dataTransfer.effectAllowed = 'move';
+    setDraggingItem({ itemId: item.id, type: item.type });
+  };
+
+  const handleItemDragEnd = () => {
+    setDraggingItem(null);
+    setDropTargetId(null);
+  };
+
+  const isDescendant = (sourceId, targetId, visited = new Set()) => {
+    if (sourceId === targetId) return true;
+    if (visited.has(sourceId)) return false;
+    visited.add(sourceId);
+    const sourceData = chatTreeData[sourceId];
+    if (!sourceData?.items) return false;
+    for (const item of sourceData.items) {
+      if (item.type === 'folder') {
+        if (item.id === targetId) return true;
+        if (isDescendant(item.id, targetId, visited)) return true;
+      }
+    }
+    return false;
+  };
+
+  const handleFolderDragOver = (e, folderId) => {
+    const isChatMove = e.dataTransfer.types.includes('application/x-chat-move');
+    if (!isChatMove) return;
+    if (draggingItem && draggingItem.itemId === folderId) return;
+    if (draggingItem && draggingItem.type === 'folder' && isDescendant(draggingItem.itemId, folderId)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    setDropTargetId(folderId);
+  };
+
+  const handleFolderDragLeave = (e) => {
+    if (!dropTargetId) return;
+    if (e.currentTarget.contains(e.relatedTarget)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDropTargetId(null);
+  };
+
+  const handleFolderDrop = (e, targetFolderId) => {
+    const moveDataStr = e.dataTransfer.getData('application/x-chat-move');
+    if (!moveDataStr) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDropTargetId(null);
+
+    try {
+      const moveData = JSON.parse(moveDataStr);
+      if (moveData.parentId === targetFolderId) return;
+      if (moveData.type === 'folder' && isDescendant(moveData.itemId, targetFolderId)) return;
+      if (onMoveItem) {
+        onMoveItem(moveData.itemId, moveData.type, targetFolderId, moveData.parentId);
+      }
+    } catch (err) {
+      console.error('Failed to parse chat move data:', err);
+    }
+  };
+
+  // --- Sort items within a folder ---
+  const sortItems = (items) => {
+    const folders = items.filter(i => i.type === 'folder');
+    const sessions = items.filter(i => i.type !== 'folder');
+
+    folders.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    sessions.sort((a, b) => {
+      const aIsPinned = pinnedSessions.has(a.id);
+      const bIsPinned = pinnedSessions.has(b.id);
+      if (aIsPinned && !bIsPinned) return -1;
+      if (!aIsPinned && bIsPinned) return 1;
+      if (aIsPinned && bIsPinned) {
+        const diff = (pinnedTimestamps[a.id] || 0) - (pinnedTimestamps[b.id] || 0);
+        if (diff !== 0) return diff;
+      }
+      return new Date(b.lastActivityAt || b.lastUpdated || b.createdAt || 0) -
+             new Date(a.lastActivityAt || a.lastUpdated || a.createdAt || 0);
+    });
+
+    return [...folders, ...sessions];
+  };
+
+  // --- Recursive tree rendering ---
+  const renderItems = (parentId, depth) => {
+    const folderData = chatTreeData[parentId];
+    const items = folderData?.items || [];
+    const isLoaded = folderData?.loaded;
+    const elements = [];
+
+    // New folder input at this level
+    if (creatingFolderIn === parentId) {
+      elements.push(
+        React.createElement('div', {
+          key: '__new-folder-' + parentId,
+          className: 'document-library-tree-item'
+        },
+          renderGuides(depth),
+          React.createElement('span', { className: 'document-library-tree-chevron spacer' }),
+          React.createElement('input', {
+            ref: newFolderInputRef,
+            type: 'text',
+            className: 'document-library-rename-input',
+            value: newFolderName,
+            placeholder: 'Folder name',
+            onChange: (e) => setNewFolderName(e.target.value),
+            onKeyDown: (e) => {
+              if (e.key === 'Enter') saveNewFolder();
+              if (e.key === 'Escape') cancelCreateFolder();
+            },
+            onBlur: () => {
+              if (newFolderName.trim()) saveNewFolder();
+              else cancelCreateFolder();
+            },
+            onClick: (e) => e.stopPropagation()
+          })
+        )
+      );
+    }
+
+    if (!isLoaded && expandedFolders.has(parentId)) {
+      elements.push(
+        React.createElement('div', {
+          key: '__loading-' + parentId,
+          className: 'document-library-tree-loading'
+        },
+          renderGuides(depth),
+          React.createElement('i', { className: 'fas fa-spinner fa-spin' }),
+          ' Loading...'
+        )
+      );
+      return elements;
+    }
+
+    const sortedItems = sortItems(items);
+
+    for (const item of sortedItems) {
+      const isFolder = item.type === 'folder';
+      const isExpanded = isFolder && expandedFolders.has(item.id);
+      const isDragTarget = dropTargetId === item.id;
+      const isDragging = draggingItem?.itemId === item.id;
+
+      let className = 'document-library-tree-item';
+      if (isDragTarget) className += ' drop-target';
+      if (isDragging) className += ' dragging';
+
+      if (isFolder) {
+        // --- Folder row ---
+        elements.push(
+          React.createElement('div', {
+            key: item.id,
+            className: className,
+            draggable: true,
+            onDragStart: (e) => handleItemDragStart(e, item, parentId),
+            onDragEnd: handleItemDragEnd,
+            onDragOver: (e) => handleFolderDragOver(e, item.id),
+            onDragLeave: handleFolderDragLeave,
+            onDrop: (e) => handleFolderDrop(e, item.id),
+            onClick: () => onToggleFolder && onToggleFolder(item.id)
+          },
+            renderGuides(depth),
+            React.createElement('span', {
+              className: 'document-library-tree-chevron'
+            }, React.createElement('i', {
+              className: isExpanded ? 'fas fa-chevron-down' : 'fas fa-chevron-right'
+            })),
+            editingId === item.id
+              ? React.createElement('input', {
+                  type: 'text',
+                  className: 'document-library-rename-input',
+                  value: editName,
+                  onChange: (e) => setEditName(e.target.value),
+                  onKeyDown: (e) => {
+                    if (e.key === 'Enter') saveRename(item.id);
+                    if (e.key === 'Escape') cancelRename();
+                  },
+                  onBlur: () => saveRename(item.id),
+                  autoFocus: true,
+                  onClick: (e) => e.stopPropagation()
+                })
+              : React.createElement('span', { className: 'document-library-tree-name' }, item.name),
+            editingId !== item.id && React.createElement('div', {
+              className: 'document-library-tree-actions'
+            },
+              React.createElement('button', {
+                className: 'document-library-action-btn',
+                onClick: (e) => { e.stopPropagation(); startCreateFolder(item.id); },
+                title: 'New subfolder'
+              }, React.createElement('i', { className: 'fas fa-folder-plus' })),
+              React.createElement('button', {
+                className: 'document-library-action-btn',
+                onClick: (e) => { e.stopPropagation(); startRename(item, parentId); },
+                title: 'Rename'
+              }, React.createElement('i', { className: 'fas fa-pencil-alt' })),
+              React.createElement('button', {
+                className: 'document-library-action-btn delete',
+                onClick: (e) => { e.stopPropagation(); startDelete(item.id, item.name, true, parentId); },
+                title: 'Delete'
+              }, React.createElement('i', { className: 'fas fa-trash-alt' }))
+            )
+          )
+        );
+
+        if (isExpanded) {
+          elements.push(...renderItems(item.id, depth + 1));
+        }
+      } else {
+        // --- Session row ---
+        let sessionClass = className;
+        if (currentSessionId === item.id) sessionClass += ' active';
+        if (currentSessionId !== item.id && isStreaming) sessionClass += ' disabled';
+
+        elements.push(
+          React.createElement('div', {
+            key: item.id,
+            className: sessionClass,
+            draggable: true,
+            onDragStart: (e) => handleItemDragStart(e, item, parentId),
+            onDragEnd: handleItemDragEnd,
+            onDragOver: (e) => handleFolderDragOver(e, parentId),
+            onDragLeave: handleFolderDragLeave,
+            onDrop: (e) => handleFolderDrop(e, parentId),
+            onClick: isStreaming ? undefined : () => onSelectSession && onSelectSession(item.id)
+          },
+            renderGuides(depth),
+            // Commented out to remove icon to the left of a chat
+            // React.createElement('i', {
+            //   className: 'fas fa-comment document-library-tree-icon'
+            // }),
+            editingId === item.id
+              ? React.createElement('input', {
+                  type: 'text',
+                  className: 'document-library-rename-input',
+                  value: editName,
+                  onChange: (e) => setEditName(e.target.value),
+                  onKeyDown: (e) => {
+                    if (e.key === 'Enter') saveRename(item.id);
+                    if (e.key === 'Escape') cancelRename();
+                  },
+                  onBlur: () => saveRename(item.id),
+                  autoFocus: true,
+                  onClick: (e) => e.stopPropagation()
+                })
+              : React.createElement('span', { className: 'document-library-tree-name' },
+                  pinnedSessions.has(item.id) && React.createElement('i', {
+                    className: 'fas fa-star chat-pin-icon'
+                  }),
+                  item.title || 'Untitled Chat'
+                ),
+            editingId !== item.id && React.createElement('div', {
+              className: 'document-library-tree-actions'
+            },
+              React.createElement('button', {
+                className: 'document-library-action-btn',
+                onClick: (e) => { e.stopPropagation(); handlePin(item.id); },
+                title: pinnedSessions.has(item.id) ? 'Unpin' : 'Pin'
+              }, React.createElement('i', {
+                className: pinnedSessions.has(item.id) ? 'fas fa-star' : 'far fa-star'
+              })),
+              React.createElement('button', {
+                className: 'document-library-action-btn',
+                onClick: (e) => { e.stopPropagation(); startRename(item, parentId); },
+                title: 'Rename'
+              }, React.createElement('i', { className: 'fas fa-pencil-alt' })),
+              React.createElement('button', {
+                className: 'document-library-action-btn delete',
+                onClick: (e) => { e.stopPropagation(); startDelete(item.id, item.title || 'Untitled Chat', false, parentId); },
+                title: 'Delete'
+              }, React.createElement('i', { className: 'fas fa-trash-alt' }))
+            )
+          )
+        );
+      }
+    }
+
+    return elements;
+  };
+
+  // --- Render ---
+  return React.createElement('div', {
+      ref: panelRef,
+      className: 'document-library-panel',
+      style: showMobile ? {} : { width: panelWidth + 'px' }
+    },
+
+    // Mobile close button
+    showMobile && onMobileClose && React.createElement('button', {
+      className: 'mobile-close-button',
+      onClick: onMobileClose,
+      'aria-label': 'Close panel'
+    }, React.createElement('i', { className: 'fas fa-times' })),
+
+    // Resize handle (desktop only)
+    !showMobile && React.createElement('div', {
+      className: 'document-library-resize-handle' + (isResizing ? ' resizing' : ''),
+      onMouseDown: handleResizeStart
+    }),
+
+    // Header
+    React.createElement('div', {
+      className: 'document-library-header' + (dropTargetId === CHAT_ROOT_FOLDER_ID ? ' drop-target' : ''),
+      onDragOver: (e) => handleFolderDragOver(e, CHAT_ROOT_FOLDER_ID),
+      onDragLeave: handleFolderDragLeave,
+      onDrop: (e) => handleFolderDrop(e, CHAT_ROOT_FOLDER_ID)
+    },
+      React.createElement('h3', null, 'My Conversations'),
+      React.createElement('div', { className: 'document-library-header-actions' },
+        React.createElement('button', {
+          className: 'document-library-add-btn',
+          onClick: () => startCreateFolder(CHAT_ROOT_FOLDER_ID),
+          title: 'New folder'
+        }, React.createElement('i', { className: 'fas fa-folder-plus' }))
+      )
+    ),
+
+    // Tree list
+    React.createElement('div', {
+      className: 'document-library-tree',
+      onDragOver: (e) => handleFolderDragOver(e, CHAT_ROOT_FOLDER_ID),
+      onDragLeave: handleFolderDragLeave,
+      onDrop: (e) => handleFolderDrop(e, CHAT_ROOT_FOLDER_ID)
+    },
+      loading
+        ? React.createElement('div', { className: 'document-library-loading' },
+            React.createElement('i', { className: 'fas fa-spinner fa-spin' }),
+            ' Loading...'
+          )
+        : (!chatTreeData[CHAT_ROOT_FOLDER_ID]?.loaded || (chatTreeData[CHAT_ROOT_FOLDER_ID]?.items?.length === 0 && creatingFolderIn === null))
+          ? React.createElement('div', { className: 'document-library-empty' },
+              React.createElement('i', { className: 'fas fa-comments' }),
+              React.createElement('p', null, 'No conversations yet'),
+              React.createElement('p', { className: 'document-library-hint' },
+                'Start a chat or create folders to get started'
+              )
+            )
+          : renderItems(CHAT_ROOT_FOLDER_ID, 0)
+    ),
+
+    // Delete confirmation modal
+    deleteConfirmation.show && React.createElement('div', {
+      className: 'delete-confirmation-overlay',
+      onClick: cancelDelete,
+      tabIndex: 0
+    },
+      React.createElement('div', {
+        className: 'delete-confirmation-modal',
+        onClick: (e) => e.stopPropagation()
+      },
+        React.createElement('div', { className: 'delete-confirmation-header' },
+          React.createElement('h3', null, deleteConfirmation.isFolder ? 'Delete Folder' : 'Delete Chat'),
+          React.createElement('button', {
+            className: 'delete-confirmation-close',
+            onClick: cancelDelete
+          }, '\u00D7')
+        ),
+        React.createElement('div', { className: 'delete-confirmation-content' },
+          React.createElement('p', null,
+            deleteConfirmation.isFolder
+              ? ['Delete folder ', React.createElement('strong', { key: 'name' }, deleteConfirmation.name || 'this folder'), ' and all its contents? This cannot be undone.']
+              : ['Delete ', React.createElement('strong', { key: 'name' }, deleteConfirmation.name || 'this chat'), '? This cannot be undone.']
+          )
+        ),
+        React.createElement('div', { className: 'delete-confirmation-actions' },
+          React.createElement('button', {
+            className: 'delete-confirmation-cancel',
+            onClick: cancelDelete
+          }, 'Cancel'),
+          React.createElement('button', {
+            className: 'delete-confirmation-confirm',
+            onClick: confirmDelete
+          }, 'Delete')
+        )
+      )
+    )
+  );
+};
+
+// Export to window
+window.ChatHistory = ChatHistory;

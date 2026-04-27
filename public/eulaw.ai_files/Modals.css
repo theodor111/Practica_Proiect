@@ -1,0 +1,56 @@
+/* Shared Modal Component Styles */
+
+/* License Agreement Modal */
+.license-terms-title {
+  color: var(--text-primary);
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.license-terms-list {
+  margin-left: 1.5rem;
+}
+
+.license-terms-list li {
+  margin-bottom: 0.5rem;
+}
+
+.license-acknowledgment {
+  margin-top: 1.5rem;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.license-close-btn {
+  padding: 0.5rem 1.5rem;
+  background-color: var(--white-button);
+  color: #181818;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.license-close-btn:hover {
+  background-color: #FFFFFF;
+}
+
+/* Privacy Policy Modal */
+.privacy-intro {
+  margin-bottom: 1.5rem;
+}
+
+.privacy-data-controller {
+  margin: 0;
+  line-height: 1.8;
+}
+
+.privacy-info-list {
+  margin-left: 1.5rem;
+  margin-bottom: 0;
+}
+
+.privacy-gdpr-note {
+  margin-bottom: 0;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}

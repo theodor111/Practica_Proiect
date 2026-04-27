@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<!-- saved from url=(0021)https://eulaw.ai/app/ -->
+<html lang="en" data-theme="dark"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
+    <meta name="robots" content="noindex, nofollow">
+    <title>eulaw.ai</title>
+
+    <!-- PWA Meta Tags -->
+    <meta name="application-name" content="eulaw.ai">
+    <meta name="apple-mobile-web-app-title" content="eulaw.ai">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#1a1a1a">
+
+    <link rel="icon" href="./eulaw.ai_files/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="https://eulaw.ai/favicon.ico">
+
+    <!-- React 19.2.4 via jsDelivr ESM (production build) -->
+    <script type="module">
+      import React from 'https://cdn.jsdelivr.net/npm/react@19.2.4/+esm';
+      import ReactDOM from 'https://cdn.jsdelivr.net/npm/react-dom@19.2.4/+esm';
+      import { createRoot } from 'https://cdn.jsdelivr.net/npm/react-dom@19.2.4/client/+esm';
+      window.React = React;
+      window.ReactDOM = { ...ReactDOM, createRoot };
+      // Signal that React is ready
+      window.dispatchEvent(new Event('react-ready'));
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+    <link rel="stylesheet" href="./eulaw.ai_files/variables.css">
+    <link rel="stylesheet" href="./eulaw.ai_files/style.css">
+    <link rel="stylesheet" href="./eulaw.ai_files/app.css">
+
+    <!-- Component CSS Files -->
+    <link rel="stylesheet" href="./eulaw.ai_files/ChatInput.css">
+    <link rel="stylesheet" href="./eulaw.ai_files/ChatInterface.css">
+    <link rel="stylesheet" href="./eulaw.ai_files/ChatHistory.css">
+    <link rel="stylesheet" href="./eulaw.ai_files/SourcePanel.css">
+    <link rel="stylesheet" href="./eulaw.ai_files/DocumentLibrary.css">
+    <link rel="stylesheet" href="./eulaw.ai_files/SubscriptionOverlay.css">
+    <link rel="stylesheet" href="./eulaw.ai_files/Navigation.css">
+    <link rel="stylesheet" href="./eulaw.ai_files/Utilities.css">
+    <link rel="stylesheet" href="./eulaw.ai_files/DataScope.css">
+    <link rel="stylesheet" href="./eulaw.ai_files/Modals.css">
+
+    <!-- Word document export library -->
+    <script src="https://cdn.jsdelivr.net/npm/docx@9.5.1/dist/index.iife.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+
+    <!-- Utility modules (must load before app.js) -->
+    <script src="./eulaw.ai_files/constants.js.download"></script>
+    <script src="./eulaw.ai_files/markdown.js.download"></script>
+    <script src="./eulaw.ai_files/domain.js.download"></script>
+    <script src="./eulaw.ai_files/export.js.download"></script>
+    <script src="./eulaw.ai_files/Modal.js.download"></script>
+
+    <!-- Embedded Configuration (Public values only - no infrastructure details) -->
+    <!-- These values are replaced during deployment based on environment parameters -->
+    <script>
+    window.EULAW_CONFIG = {
+      auth: {
+        cognitoDomain: "https://auth.eulaw.ai/",
+        clientId: "415gpoii7jbrefg00bvereqf37",
+        redirectUri: "https://eulaw.ai/app/index.html",
+        scope: "email openid profile"
+      },
+      stripe: {
+        publishableKey: "NotInUse"
+      },
+      environment: "prod"
+    };
+    </script>
+</head>
+<body>
+    <div id="root"><div class="main-app-container"><div class="nav-icon-bar"><div class="nav-icon-bar-top"><div class="nav-icon-bar-logo"><img alt="eulaw.ai" class="nav-icon-bar-logo-img" src="./eulaw.ai_files/favicon.svg"></div><button class="nav-icon-btn" aria-label="New Chat" title="New Chat"><i class="fas fa-edit"></i></button><button class="nav-icon-btn" aria-label="Conversations" title="Conversations"><i class="fas fa-comments"></i></button><button class="nav-icon-btn" aria-label="My Documents" title="My Documents"><i class="fas fa-folder-open"></i></button><button class="nav-icon-btn active" aria-label="Sources &amp; Citations" title="Sources &amp; Citations"><i class="fas fa-book-open"></i></button></div><div class="nav-icon-bar-bottom"><button class="nav-icon-btn" aria-label="App Tutorial" title="App Tutorial"><i class="fas fa-info-circle"></i></button><button class="nav-icon-btn" aria-label="User Profile" title="User Profile"><i class="fas fa-user"></i></button><button class="nav-icon-btn" aria-label="Dark Mode" title="Dark Mode"><i class="fas fa-moon"></i></button><div class="nav-icon-bar-badge" style="cursor: pointer;"><span class="nav-bar-pro-badge">TRIAL</span></div></div></div><div class="chat-container"><button class="free-tier-counter">Free trial 1/10</button><div class="chat-messages" style="opacity: 1; transition: opacity 0.15s ease-in;"><div class="user-message-wrapper"><div class="user-message message-bubble"><div class="whitespace-pre-wrap break-words">can create a terms and conditions site for my web page? it is about events in brasov romania..it is destinated for students and fosr every one that is intrested</div><div class="message-bottom-row user"><span>27.04.2026 - 21:20</span><button class="copy-message-button" title="Copy message"><i class="fas fa-copy icon-transition"></i></button></div></div></div><div class="ai-message-wrapper" data-response-number="1"><div class="ai-message message-bubble"><div class="break-words"><p>I'll draft a Terms and Conditions document for your Brasov events website right away!</p><h2>Summary</h2><p></p><p>I've created a full <strong>Terms and Conditions</strong> document tailored for your Brasov Events website. It covers all the essential sections: permitted and prohibited use, event listing accuracy, intellectual property, user-submitted content, GDPR-compliant privacy rules, cookies, liability limitations, and a special note for student users. The document is governed by <strong>Romanian law</strong> with jurisdiction in <strong>Brasov courts</strong>, and it aligns with EU regulations including the GDPR.</p><p>A few things you should personalise before publishing:</p><ol><li><strong>Replace</strong> <code>[your-email@example.com]</code> and <code>[www.your-website.ro]</code> with your real contact details.</li><li><strong>Add a Privacy Policy</strong> and <strong>Cookie Policy</strong> as separate pages (referenced in the Terms).</li><li><strong>Consult a Romanian lawyer</strong> to ensure full compliance with local consumer protection and e-commerce law before going live.</li></ol><p></p></div><div class="message-bottom-row ai"><span>27.04.2026 - 21:21</span><button class="copy-message-button" title="Copy message"><i class="fas fa-copy icon-transition"></i></button><button class="export-word-button" title="Export to Word"><i class="fas fa-file-word icon-transition"></i></button><button class="save-to-library-button" title="Save to Documents"><i class="fas fa-folder-plus icon-transition"></i></button></div><div class="artifact-pills"><button class="artifact-pill" title="Open Terms and Conditions – Brasov Events Website"><i class="fas fa-file-contract artifact-pill-icon"></i><span class="artifact-pill-title">Terms and Conditions – Brasov Events Website</span><i class="fas fa-arrow-right artifact-pill-arrow"></i></button></div><div class="follow-up-questions"><button class="follow-up-chip">Can you also create a Privacy Policy for my Brasov Events website?</button><button class="follow-up-chip">What GDPR obligations do I have as a website owner targeting students in Romania?</button><button class="follow-up-chip">Can you draft a Cookie Policy to go alongside these Terms and Conditions?</button></div></div></div><div></div></div><div class="chat-input-area"><div class="mobile-nav"><button class="scroll-to-bottom-button mobile-nav-button" aria-label="Scroll to bottom" title="Scroll to bottom">↓</button></div><div class="input-wrapper"><div class="input-with-files"><div class="text-input-area"><div class="chat-input-placeholder">Write your message here...</div><textarea class="chat-input chat-input-textarea" placeholder="" rows="1" style="height: 42px; overflow-y: hidden;"></textarea></div><div class="input-menu-bar"><input accept=".pdf,.txt,.html,.md,.doc,.docx,.csv,.xls,.xlsx" multiple="" class="hidden-input" type="file"><button type="button" class="add-file-button add-file-btn" title="Attach document (PDF, DOC, TXT, etc.)"><i class="fas fa-paperclip"></i></button><div class="filter-divider"></div><span class="filters-label" title="filter search results by jurisdiction and legal status">Jurisdiction:</span><div class="jurisdiction-flags-container" title="select jurisdictions to search"><div class="jurisdiction-flag" title="Click to remove European Union &amp; International"><img alt="European Union &amp; International" src="https://flagcdn.com/w80/eu.webp"><div class="flag-remove-icon"><i class="fas fa-times"></i></div><div class="flag-info-icon"><i class="fas fa-info-circle"></i></div></div><div class="jurisdiction-flag" title="Click to remove Denmark (DK)"><img alt="Denmark (DK)" src="https://flagcdn.com/w80/dk.webp"><div class="flag-remove-icon"><i class="fas fa-times"></i></div><div class="flag-info-icon"><i class="fas fa-info-circle"></i></div></div><button type="button" class="jurisdiction-add-btn" title="Add jurisdiction">+</button></div><div class="filter-divider"></div><div class="in-force-toggle-container" title="select current, all or historic legislation"><span class="in-force-label">current</span><div class="in-force-track"><div class="in-force-handle current"></div></div></div><div class="menu-spacer"></div><button type="submit" class="send-button" title="Send message (Enter)" disabled=""><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"></path></svg></button></div></div></div><div class="chat-input-help-text">Enter to send • Shift+Enter for new line • Esc to stop • This AI does not replace professional legal advice.</div></div></div><div class="data-scope-container"><button class="data-scope-pill" aria-label="Show data sources"><svg class="data-scope-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg><span>Searching 1,486,134+ documents</span></button></div><button class="source-panel-toggle-arrow" title="Close Sources &amp; Citations"><i class="fas fa-chevron-right"></i></button><div class="source-panel" style="width: 350px;"><div class="source-panel-resize-handle"><div class="resize-grip"></div></div><div class="source-panel-inner"><button class="source-panel-close-btn" aria-label="Close panel" title="Close">✕</button><div class="source-panel-tabs"><button class="source-panel-tab ">Sources &amp; Citations</button><button class="source-panel-tab active">Documents</button></div><div class="artifacts-section"><div class="artifact-card collapsed"><div class="artifact-card-header"><i class="fas fa-file-alt artifact-card-icon"></i><div class="artifact-card-meta"><div class="artifact-card-title">Terms and Conditions – Brasov Events Website</div><div class="artifact-card-type">Contract<span class="artifact-saved-badge">Saved to Library</span></div></div><div class="artifact-card-actions"><button class="artifact-card-action-btn" title="Export to Word"><i class="fas fa-file-word icon-transition"></i></button><button class="artifact-card-action-btn save saved" title="Saved to Library" disabled=""><i class="fas fa-check icon-transition"></i></button></div><i class="fas fa-chevron-down artifact-card-chevron"></i></div></div></div></div></div></div></div>
+    <script>
+      // Sequential script loading with cleaner structure
+      function loadScript(src) {
+        return new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = src;
+          script.onload = resolve;
+          script.onerror = () => reject(new Error(`Failed to load ${src}`));
+          document.body.appendChild(script);
+        });
+      }
+
+      async function loadApp() {
+        try {
+          // Load services in dependency order
+          await loadScript('services/auth.js');
+          await loadScript('services/api.js');
+
+          // Load utility components
+          await loadScript('components/Utilities.js');
+          await loadScript('components/Navigation.js');
+
+          // Load main components
+          await loadScript('components/ChatInput.js');
+          await loadScript('components/ChatHistory.js');
+          await loadScript('components/ChatInterface.js');
+          await loadScript('components/SourcePanel.js');
+          await loadScript('components/UserProfile.js');
+          await loadScript('components/DocumentLibrary.js');
+          await loadScript('components/DataScope.js');
+
+          // Load modal components
+          await loadScript('components/SubscriptionOverlay.js');
+          await loadScript('components/PrivacyPolicyModal.js');
+          await loadScript('components/LicenseAgreementModal.js');
+          await loadScript('components/TermsOfServiceModal.js');
+
+          // Load main app
+          await loadScript('app.js');
+        } catch (error) {
+          console.error('Failed to load application:', error);
+        }
+      }
+
+      // Wait for React to be ready before loading app
+      if (window.React && window.ReactDOM) {
+        loadApp();
+      } else {
+        window.addEventListener('react-ready', loadApp, { once: true });
+      }
+    </script>
+
+<script src="./eulaw.ai_files/auth.js.download"></script><script src="./eulaw.ai_files/api.js.download"></script><script src="./eulaw.ai_files/Utilities.js.download"></script><script src="./eulaw.ai_files/Navigation.js.download"></script><script src="./eulaw.ai_files/ChatInput.js.download"></script><script src="./eulaw.ai_files/ChatHistory.js.download"></script><script src="./eulaw.ai_files/ChatInterface.js.download"></script><script src="./eulaw.ai_files/SourcePanel.js.download"></script><script src="./eulaw.ai_files/UserProfile.js.download"></script><script src="./eulaw.ai_files/DocumentLibrary.js.download"></script><script src="./eulaw.ai_files/DataScope.js.download"></script><script src="./eulaw.ai_files/SubscriptionOverlay.js.download"></script><script src="./eulaw.ai_files/PrivacyPolicyModal.js.download"></script><script src="./eulaw.ai_files/LicenseAgreementModal.js.download"></script><script src="./eulaw.ai_files/TermsOfServiceModal.js.download"></script><script src="./eulaw.ai_files/app.js.download"></script></body></html>

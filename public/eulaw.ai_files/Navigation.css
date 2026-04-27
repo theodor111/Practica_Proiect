@@ -1,0 +1,10 @@
+/* Navigation Component Styles */
+
+/* Mobile Navigation */
+.mobile-nav-justified {
+  justify-content: space-between;
+}
+
+.mobile-nav-full {
+  justify-content: space-between;
+}

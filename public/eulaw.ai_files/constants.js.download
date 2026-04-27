@@ -1,0 +1,49 @@
+/**
+ * Application Constants
+ * Centralized configuration values for the eulaw.ai app
+ */
+
+// Timeout values (in milliseconds)
+window.TIMEOUTS = {
+  FETCH_DEFAULT: 30000,        // Default fetch timeout
+  API_STREAMING: 120000,       // Streaming API calls (longer)
+  SESSION_CHECK: 60000,        // Session monitor interval (1 minute)
+  SESSION_WARNING: 5 * 60 * 1000,  // Session expiry warning (5 minutes)
+  STREAM_TIMEOUT: 60000,       // Stream response timeout
+  DATA_EXPORT: 30000,          // Data export timeout
+  CONFIG_WAIT: 10000,          // Max wait for config to load
+  CONDITION_CHECK: 100,        // Polling interval for conditions
+};
+
+// API retry configuration
+window.RETRY_CONFIG = {
+  MAX_RETRIES: 3,
+  BASE_DELAY: 1000,
+  BACKOFF_MULTIPLIER: 2,
+  MAX_DELAY: 32000,
+};
+
+// Year range for filters
+window.YEAR_RANGE = {
+  MIN: 1999,  // 1999 represents "all" (years before 2000)
+  get MAX() { return new Date().getFullYear(); }
+};
+
+// Subscription pricing
+window.PRICING = {
+  PLAN_NAME: 'Professional Plan',
+  PRICE: '€39',
+  CURRENCY: 'EUR',
+  PERIOD: '/m',
+};
+
+// API endpoints (relative paths)
+window.API_ENDPOINTS = {
+  CHAT: '/api/chat',
+  CHAT_SESSIONS: '/api/chat-sessions',
+  USER_PROFILE: '/user/profile',
+  ACCEPT_AGREEMENT: '/user/accept-agreement',
+  STRIPE_CHECKOUT: '/stripe-checkout',
+  CUSTOMER_PORTAL: '/customer-portal',
+  EXPORT_DATA: '/export-data',
+};

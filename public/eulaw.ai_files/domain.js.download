@@ -1,0 +1,67 @@
+/**
+ * Domain Utilities
+ * Collapse a hostname to its registrable-ish root so favicon services don't
+ * 404 on deep subdomains (e.g. `technical-regulation-information-system.ec.europa.eu`
+ * collapses to `europa.eu`, `cdn.bbc.com` collapses to `bbc.com`).
+ */
+
+// Two-label public suffixes (from publicsuffix.org) where the registrable
+// domain is the last 3 labels rather than 2. Scoped to European ccTLDs
+// relevant to EU legal research. Non-European sources degrade to the 2-label
+// fallback, which Google's favicon API + DuckDuckGo fallback tolerate.
+const TWO_LABEL_PUBLIC_SUFFIXES = new Set([
+  // United Kingdom — legislation.gov.uk, parliament.uk, BAILII, academic, NHS
+  'co.uk', 'gov.uk', 'ac.uk', 'org.uk', 'net.uk',
+  'nhs.uk', 'me.uk', 'ltd.uk', 'plc.uk', 'parliament.uk', 'police.uk',
+  // France — legifrance.gouv.fr, justice.gouv.fr, data.gouv.fr
+  'gouv.fr', 'com.fr', 'asso.fr', 'nom.fr',
+  // Ireland
+  'gov.ie',
+  // Italy — gov.it, edu.it, plus the 20 official regional suffixes
+  // (regional court/administration sites use these heavily)
+  'gov.it', 'edu.it',
+  'abruzzo.it', 'basilicata.it', 'calabria.it', 'campania.it',
+  'emilia-romagna.it', 'friuli-venezia-giulia.it', 'lazio.it', 'liguria.it',
+  'lombardia.it', 'marche.it', 'molise.it', 'piemonte.it',
+  'puglia.it', 'sardegna.it', 'sicilia.it', 'toscana.it',
+  'trentino-alto-adige.it', 'umbria.it', 'valle-d-aosta.it', 'veneto.it',
+  // Spain — gob.es for government (.gob, not .gov)
+  'gob.es', 'com.es', 'edu.es', 'org.es', 'nom.es',
+  // Portugal
+  'gov.pt', 'com.pt', 'edu.pt', 'org.pt',
+  // Greece
+  'gov.gr', 'com.gr', 'edu.gr', 'org.gr', 'net.gr',
+  // Poland — isap.sejm.gov.pl etc.; biz.pl is a common commercial suffix
+  'gov.pl', 'com.pl', 'edu.pl', 'org.pl', 'mil.pl', 'biz.pl',
+  // Czech Republic
+  'gov.cz',
+  // Cyprus
+  'gov.cy', 'ac.cy', 'com.cy', 'org.cy', 'net.cy',
+  // Austria
+  'gv.at', 'ac.at', 'co.at', 'or.at',
+  // Belgium
+  'ac.be',
+  // Malta
+  'com.mt', 'edu.mt', 'org.mt', 'net.mt',
+  // Sweden — rkrattsbaser.gov.se (Government legal database)
+  'gov.se',
+  // Baltic states
+  'gov.lt',
+  'gov.lv', 'com.lv', 'edu.lv', 'org.lv',
+  'gov.ee', 'com.ee', 'edu.ee', 'org.ee',
+  // Ukraine
+  'gov.ua', 'com.ua', 'edu.ua', 'net.ua', 'org.ua', 'in.ua',
+]);
+
+function getFaviconDomain(hostname) {
+  if (!hostname) return '';
+  const parts = hostname.split('.');
+  if (parts.length <= 2) return hostname;
+  const lastTwo = parts.slice(-2).join('.');
+  if (TWO_LABEL_PUBLIC_SUFFIXES.has(lastTwo)) {
+    return parts.slice(-3).join('.');
+  }
+  return parts.slice(-2).join('.');
+}
+
+window.getFaviconDomain = getFaviconDomain;

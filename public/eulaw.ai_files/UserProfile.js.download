@@ -1,0 +1,408 @@
+/**
+ * User Profile Component
+ * User profile modal with account settings, subscription info, and privacy settings
+ */
+
+/**
+ * User Profile Modal Component
+ * @param {Object} props - Component props
+ * @param {Object} props.user - User object with info
+ * @param {Function} props.onClose - Close handler
+ * @param {Function} props.onLogout - Logout handler
+ * @param {Function} props.onDisplayNameUpdate - Display name update handler
+ * @param {Object} props.subscriptionStatus - Subscription status object
+ * @param {Function} props.onPrivacyClick - Privacy policy click handler
+ */
+function UserProfile({ user, onClose, onLogout, onDisplayNameUpdate, subscriptionStatus, onPrivacyClick }) {
+  const [isExporting, setIsExporting] = React.useState(false);
+  const [exportStatus, setExportStatus] = React.useState(null);
+  const [activeSection, setActiveSection] = React.useState(null); // null = all closed, 'account'/'privacy'/'subscription' = open
+  const [isEditingDisplayName, setIsEditingDisplayName] = React.useState(false);
+  const [tempDisplayName, setTempDisplayName] = React.useState('');
+  const [displayName, setDisplayName] = React.useState(localStorage.getItem('userDisplayName') || '');
+  const [updateStatus, setUpdateStatus] = React.useState(null);
+
+  function handleOverlayClick(e) {
+    if (e.target === e.currentTarget) {
+      onClose();
+    }
+  }
+  
+  async function handleDataExport() {
+    setIsExporting(true);
+    setExportStatus(null);
+    
+    try {
+      const idToken = SecureTokenStorage.getToken('idToken');
+      const response = await fetchWithTimeout('/api/user/data-export', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${idToken}`,
+          'Content-Type': 'application/json'
+        }
+      }, 30000); // 30 second timeout for data export
+
+      if (!response.ok) {
+        if (response.status === 401 && window.SessionExpiredEvent) {
+          window.dispatchEvent(new window.SessionExpiredEvent());
+          throw new Error('Session expired - please log in again');
+        }
+        throw new Error('Failed to create data export');
+      }
+      
+      const result = await response.json();
+
+      // Download JSON file directly
+      const dataStr = JSON.stringify(result.data, null, 2);
+      const blob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `data-export-${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setExportStatus({
+        type: 'success',
+        message: `Data export ready! Contains ${result.data.exportMetadata.totalChatSessions} chat sessions and ${result.data.exportMetadata.totalMessages} messages.`
+      });
+      
+    } catch (error) {
+      console.error('Export error:', error);
+      setExportStatus({
+        type: 'error',
+        message: 'Failed to create data export. Please try again later.'
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  async function handleCancelSubscription() {
+    if (!confirm('Are you sure you want to cancel your subscription? It will remain active until the end of your current billing period.')) {
+      return;
+    }
+
+    try {
+      const user = authService.getUserInfo();
+      const email = user?.email || localStorage.getItem('userEmail');
+      
+      if (!email) {
+        console.error('No email found for subscription cancellation');
+        return;
+      }
+
+      const idToken = SecureTokenStorage.getToken('idToken');
+      const response = await fetchWithTimeout('/api/stripe-checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({
+          action: 'cancel-subscription',
+          email: email
+        })
+      }, 15000); // 15 second timeout for subscription operations
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Subscription cancelled:', result);
+
+        if (window.refreshSubscriptionStatus) {
+          await window.refreshSubscriptionStatus();
+        }
+
+        alert('Your subscription has been cancelled successfully. It will remain active until the end of your current billing period.');
+      } else {
+        if (response.status === 401 && window.SessionExpiredEvent) {
+          window.dispatchEvent(new window.SessionExpiredEvent());
+          throw new Error('Session expired');
+        }
+        const error = await response.json();
+        console.error('Failed to cancel subscription:', error);
+        alert('Failed to cancel subscription: ' + (error.error || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Error cancelling subscription:', error);
+      if (error.message !== 'Session expired') {
+        alert('Failed to cancel subscription. Please try again.');
+      }
+    }
+  }
+
+  async function handleManageSubscription() {
+    try {
+      const user = authService.getUserInfo();
+      const email = user?.email || localStorage.getItem('userEmail');
+
+      if (!email) {
+        console.error('No email found for subscription management');
+        alert('Unable to find your account email. Please try logging out and back in.');
+        return;
+      }
+
+      const idToken = SecureTokenStorage.getToken('idToken');
+      const response = await fetchWithTimeout('/api/stripe-checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({
+          action: 'get-portal-session',
+          email: email
+        })
+      }, 15000);
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.url) {
+          window.open(result.url, '_blank');
+        } else {
+          alert('Unable to open subscription management portal.');
+        }
+      } else {
+        if (response.status === 401 && window.SessionExpiredEvent) {
+          window.dispatchEvent(new window.SessionExpiredEvent());
+          return;
+        }
+        const error = await response.json();
+        console.error('Failed to get portal session:', error);
+        alert('Failed to open subscription management: ' + (error.error || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Error opening subscription management:', error);
+      alert('Failed to open subscription management. Please try again.');
+    }
+  }
+
+
+
+  return React.createElement('div', {
+    className: 'user-profile-overlay',
+    onClick: handleOverlayClick
+  },
+    // Left Drawer
+    React.createElement('div', {
+      className: 'settings-drawer',
+      onClick: (e) => e.stopPropagation()
+    },
+      // Drawer Header
+      React.createElement('div', {
+        className: 'settings-drawer-header'
+      },
+        React.createElement('span', {
+          className: 'settings-drawer-title'
+        }, 'Settings'),
+        React.createElement('button', {
+          onClick: onClose,
+          className: 'settings-close-btn'
+        }, React.createElement('i', { className: 'fas fa-times' }))
+      ),
+
+      // User Section
+      React.createElement('div', {
+        className: 'settings-user-section'
+      },
+        React.createElement('div', {
+          className: 'settings-avatar'
+        }, React.createElement('i', { className: 'fas fa-user' })),
+        React.createElement('div', {
+          className: 'settings-username'
+        }, user?.name || 'User')
+      ),
+
+      // Drawer Content (Scrollable with Accordions)
+      React.createElement('div', {
+        className: 'settings-scrollable'
+      },
+        // Account Accordion
+        React.createElement('div', { className: 'accordion-section' },
+          // Account Header
+          React.createElement('div', {
+            onClick: () => setActiveSection(activeSection === 'account' ? null : 'account'),
+            className: `accordion-header${activeSection === 'account' ? ' active' : ''}`
+          },
+            React.createElement('i', { className: 'fas fa-user-circle accordion-icon' }),
+            React.createElement('span', { className: 'accordion-title' }, 'Account'),
+            React.createElement('span', { className: 'accordion-toggle' }, activeSection === 'account' ? '−' : '+')
+          ),
+          // Account Content
+          activeSection === 'account' && React.createElement('div', {
+            className: 'accordion-content'
+          },
+            // User ID
+            React.createElement('div', { className: 'settings-field-block' },
+              React.createElement('span', { className: 'settings-field-title' }, 'User ID'),
+              React.createElement('span', { className: 'settings-field-code' }, user?.userId || 'Unknown')
+            ),
+            // Password
+            React.createElement('div', { className: 'settings-field-block' },
+              React.createElement('span', { className: 'settings-field-title' }, 'Password'),
+              React.createElement('span', { className: 'settings-field-text' }, 'Logout and use "forgot password" at the login screen to reset password')
+            ),
+            // Delete Account
+            React.createElement('div', { className: 'settings-field-block' },
+              React.createElement('span', { className: 'settings-field-title' }, 'Delete Account'),
+              React.createElement('span', { className: 'settings-field-text' }, 'Contact admin@eulaw.ai to request account deletion')
+            ),
+            // Logout Button
+            React.createElement('button', {
+              onClick: onLogout,
+              className: 'logout-btn'
+            },
+              React.createElement('i', { className: 'fas fa-sign-out-alt' }),
+              'Logout'
+            )
+          )
+        ),
+
+        // Privacy Accordion
+        React.createElement('div', { className: 'accordion-section' },
+          // Privacy Header
+          React.createElement('div', {
+            onClick: () => setActiveSection(activeSection === 'privacy' ? null : 'privacy'),
+            className: `accordion-header${activeSection === 'privacy' ? ' active' : ''}`
+          },
+            React.createElement('i', { className: 'fas fa-shield-alt accordion-icon' }),
+            React.createElement('span', { className: 'accordion-title' }, 'Privacy'),
+            React.createElement('span', { className: 'accordion-toggle' }, activeSection === 'privacy' ? '−' : '+')
+          ),
+          // Privacy Content
+          activeSection === 'privacy' && React.createElement('div', {
+            className: 'accordion-content'
+          },
+            // How we protect your data
+            React.createElement('div', { className: 'settings-field-block' },
+              React.createElement('span', { className: 'settings-field-title' }, 'How we protect your data'),
+              React.createElement('ul', { className: 'privacy-list' },
+                React.createElement('li', { className: 'privacy-list-item' }, "We don't train our models on your data"),
+                React.createElement('li', { className: 'privacy-list-item' }, "We don't sell your data to third parties"),
+                React.createElement('li', { className: 'privacy-list-item' }, 'Data is deleted promptly when requested'),
+                React.createElement('li', { className: 'privacy-list-item' }, 'All processing uses enterprise-grade encryption')
+              )
+            ),
+            // Data Export
+            React.createElement('div', { className: 'settings-field-block' },
+              React.createElement('span', { className: 'settings-field-title' }, 'Data Export'),
+              React.createElement('span', { className: 'settings-field-text' }, 'Export all chat history.'),
+              exportStatus && React.createElement('div', {
+                className: `export-status ${exportStatus.type}`
+              }, exportStatus.message),
+              React.createElement('button', {
+                onClick: handleDataExport,
+                disabled: isExporting,
+                className: 'user-profile-action-button'
+              },
+                React.createElement('i', { className: 'fas fa-download' }),
+                isExporting ? 'Exporting...' : 'Export My Data'
+              )
+            ),
+            // Privacy Policy
+            React.createElement('div', { className: 'settings-field-block' },
+              React.createElement('span', { className: 'settings-field-title' }, 'Privacy Policy'),
+              React.createElement('span', { className: 'settings-field-text' }, 'Review our Privacy Policy to understand how we collect, use, store, and protect your personal data in compliance with GDPR.'),
+              React.createElement('button', {
+                onClick: onPrivacyClick,
+                className: 'user-profile-action-button'
+              },
+                React.createElement('i', { className: 'fas fa-lock' }),
+                'View Privacy Policy'
+              )
+            )
+          )
+        ),
+
+        // Subscription Accordion
+        React.createElement('div', { className: 'accordion-section' },
+          // Subscription Header
+          React.createElement('div', {
+            onClick: () => setActiveSection(activeSection === 'subscription' ? null : 'subscription'),
+            className: `accordion-header${activeSection === 'subscription' ? ' active' : ''}`
+          },
+            React.createElement('i', { className: 'fas fa-credit-card accordion-icon' }),
+            React.createElement('span', { className: 'accordion-title' }, 'Subscription'),
+            subscriptionStatus?.isActive && React.createElement('span', {
+              className: 'pro-badge'
+            }, 'PRO'),
+            React.createElement('span', { className: 'accordion-toggle' }, activeSection === 'subscription' ? '−' : '+')
+          ),
+          // Subscription Content
+          activeSection === 'subscription' && React.createElement('div', {
+            className: 'accordion-content'
+          },
+            subscriptionStatus ? React.createElement(React.Fragment, null,
+              // Status
+              React.createElement('div', { className: 'settings-field-block' },
+                React.createElement('span', { className: 'settings-field-title' }, 'Status'),
+                React.createElement('span', {
+                  className: `status-badge ${subscriptionStatus.isActive ? 'active' : 'inactive'}`
+                },
+                  React.createElement('i', { className: subscriptionStatus.isActive ? 'fas fa-check-circle' : 'fas fa-times-circle' }),
+                  subscriptionStatus.isActive ? 'Active' : 'Inactive'
+                )
+              ),
+              // Plan
+              subscriptionStatus.isActive && React.createElement('div', { className: 'settings-field-block' },
+                React.createElement('span', { className: 'settings-field-title' }, 'Plan'),
+                React.createElement('span', { className: 'settings-field-value' }, 'Pro Monthly')
+              ),
+              // Next Billing Date
+              subscriptionStatus.isActive && subscriptionStatus.currentPeriodEnd && React.createElement('div', { className: 'settings-field-block' },
+                React.createElement('span', { className: 'settings-field-title' }, subscriptionStatus.cancelAtPeriodEnd ? 'Expires' : 'Next Billing Date'),
+                React.createElement('span', { className: 'settings-field-value' }, new Date(subscriptionStatus.currentPeriodEnd * 1000).toLocaleDateString())
+              ),
+              // Cancellation Notice
+              subscriptionStatus.cancelAtPeriodEnd && React.createElement('div', {
+                className: 'cancellation-notice'
+              },
+                React.createElement('p', null, 'Your subscription has been cancelled and will end on the date shown above.')
+              ),
+              // Subscription action buttons
+              subscriptionStatus.isActive && React.createElement('div', { className: 'settings-field-block flex flex-wrap gap-md' },
+                // Manage button - opens Stripe Customer Portal
+                React.createElement('button', {
+                  onClick: handleManageSubscription,
+                  className: 'user-profile-action-button'
+                },
+                  React.createElement('i', { className: 'fas fa-external-link-alt icon-sm' }),
+                  'Manage Subscription'
+                )
+              )
+            ) : React.createElement('div', {
+              className: 'no-subscription-notice'
+            },
+              React.createElement('p', null, 'No active subscription found.')
+            )
+          )
+        ),
+
+        // Help & Support Link
+        React.createElement('div', {
+          onClick: () => {
+            window.open('/faq/', '_blank');
+          },
+          className: 'help-link'
+        },
+          React.createElement('i', { className: 'fas fa-question-circle accordion-icon' }),
+          React.createElement('span', { className: 'accordion-title' }, 'Help & Support')
+        )
+      ), // This closes the scrollable drawer content
+
+      // Drawer Footer
+      React.createElement('div', {
+        className: 'settings-footer'
+      },
+        React.createElement('div', {
+          className: 'version-text'
+        }, 'eulaw.ai v1.0.0')
+      )
+    ) // This closes the drawer
+  ); // This closes the overlay
+}
+
+// Export to window
+window.UserProfile = UserProfile;
