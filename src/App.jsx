@@ -1,9 +1,9 @@
 ﻿import './App.css'
 import { Routes, Route, Link } from "react-router-dom";
 import Sport from "./Sport";
-
+import Concerte from "./Concerte";
 const categoriiDate = [
-    { id: 1, titlu: 'CONCERTS', sub: 'Live band', img: 'concerte.png', btn: 'Vezi Concerte' },
+    { id: 1, titlu: 'CONCERTS', sub: 'Live band', img: 'concerte.png', btn: 'Vezi Concerte', link: '/concerte' },
     { id: 2, titlu: 'FESTIVALS', sub: 'Outdoor stage', img: 'festivaluri.png', btn: 'Află Mai Multe' },
     { id: 3, titlu: 'SPORTS', sub: 'Bilete Meciuri', img: 'sport.png', btn: 'Bilete Meciuri', link: '/sport' },
     { id: 4, titlu: 'TECH', sub: 'Inovări & Expo', img: 'tech.png', btn: 'Webinars & Expo' },
@@ -19,7 +19,7 @@ function Home() {
             <header>
                 <nav>
                     <Link to="/" className="active">HOME</Link>
-                    <a href="#">CONCERTS</a>
+                    <Link to="/concerte">CONCERTS</Link>
                     <a href="#">FESTIVALS</a>
                     <Link to="/sport">SPORTS</Link>
                     <a href="#">TECH</a>
@@ -110,6 +110,7 @@ function App() {
         <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/sport" element={<Sport />} />
+            <Route path="/concerte" element={<Concerte />} />
         </Routes>
     );
 }

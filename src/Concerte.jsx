@@ -2,16 +2,16 @@
 import { Link } from "react-router-dom";
 import "./App.css";
 
-const categorii = ["Fotbal", "Baschet", "Handbal", "Fitness", "Tenis", "Alergare", "Altele"];
+const genuri = ["Pop", "Rock", "Jazz", "Clasic", "Hip-Hop", "Electronic", "Folk", "Altele"];
 
-function Sport() {
+function Concerte() {
     const [afiseazaFormular, setAfiseazaFormular] = useState(false);
-    const [categorieActiva, setCategorieActiva] = useState("Toate");
-    const [evenimente, setEvenimente] = useState([]);
+    const [genActiv, setGenActiv] = useState("Toate");
+    const [concerte, setConcerte] = useState([]);
 
     const [formular, setFormular] = useState({
         titlu: "",
-        categorie: "Fotbal",
+        gen: "Pop",
         data: "",
         ora: "",
         locatie: "",
@@ -20,16 +20,16 @@ function Sport() {
     });
 
     useEffect(() => {
-        const evenimenteSalvate = localStorage.getItem("evenimenteSportive");
+        const concerteSalvate = localStorage.getItem("concerteAdaugate");
 
-        if (evenimenteSalvate) {
-            setEvenimente(JSON.parse(evenimenteSalvate));
+        if (concerteSalvate) {
+            setConcerte(JSON.parse(concerteSalvate));
         }
     }, []);
 
     useEffect(() => {
-        localStorage.setItem("evenimenteSportive", JSON.stringify(evenimente));
-    }, [evenimente]);
+        localStorage.setItem("concerteAdaugate", JSON.stringify(concerte));
+    }, [concerte]);
 
     const schimbaCamp = (e) => {
         const { name, value } = e.target;
@@ -40,7 +40,7 @@ function Sport() {
         });
     };
 
-    const adaugaEveniment = (e) => {
+    const adaugaConcert = (e) => {
         e.preventDefault();
 
         if (!formular.titlu || !formular.data || !formular.ora || !formular.locatie) {
@@ -48,17 +48,17 @@ function Sport() {
             return;
         }
 
-        const evenimentNou = {
+        const concertNou = {
             id: Date.now(),
             ...formular,
-            imagine: "EvSp.png"
+            imagine: "ConEv.png"
         };
 
-        setEvenimente([evenimentNou, ...evenimente]);
+        setConcerte([concertNou, ...concerte]);
 
         setFormular({
             titlu: "",
-            categorie: "Fotbal",
+            gen: "Pop",
             data: "",
             ora: "",
             locatie: "",
@@ -69,22 +69,23 @@ function Sport() {
         setAfiseazaFormular(false);
     };
 
-    const stergeEveniment = (id) => {
-        setEvenimente(evenimente.filter((eveniment) => eveniment.id !== id));
+    const stergeConcert = (id) => {
+        setConcerte(concerte.filter((concert) => concert.id !== id));
     };
 
-    const evenimenteFiltrate =
-        categorieActiva === "Toate"
-            ? evenimente
-            : evenimente.filter((eveniment) => eveniment.categorie === categorieActiva);
+    const concerteFiltrate =
+        genActiv === "Toate"
+            ? concerte
+            : concerte.filter((concert) => concert.gen === genActiv);
 
     return (
         <div className="app-root">
             <header>
                 <nav>
                     <Link to="/">HOME</Link>
-                    <Link to="/concerte">CONCERTS</Link>                    <a href="#">FESTIVALS</a>
-                    <Link to="/sport" className="active">SPORTS</Link>
+                    <Link to="/concerte" className="active">CONCERTS</Link>
+                    <a href="#">FESTIVALS</a>
+                    <Link to="/sport">SPORTS</Link>
                     <a href="#">TECH</a>
                     <a href="#">WORKSHOPS</a>
                     <a href="#">THEATER</a>
@@ -95,10 +96,10 @@ function Sport() {
             </header>
 
             <main>
-                <section className="hero sport-hero">
+                <section className="hero concerts-hero">
                     <div className="hero-content">
-                        <h1>EVENIMENTE SPORTIVE<br />ÎN BRAȘOV</h1>
-                        <p>- Adaugă și descoperă evenimente sportive.</p>
+                        <h1>CONCERTE LIVE<br />ÎN BRAȘOV</h1>
+                        <p>- Adaugă și descoperă concerte, artiști și seri live.</p>
 
                         <div className="btn-group">
                             <button
@@ -106,42 +107,42 @@ function Sport() {
                                 className="btn btn-primary"
                                 onClick={() => setAfiseazaFormular(!afiseazaFormular)}
                             >
-                                {afiseazaFormular ? "ÎNCHIDE FORMULARUL" : "ADAUGĂ EVENIMENT"}
+                                {afiseazaFormular ? "ÎNCHIDE FORMULARUL" : "ADAUGĂ CONCERT"}
                             </button>
 
-                            <a href="#sport-evenimente" className="btn btn-outline">
-                                VEZI EVENIMENTE
+                            <a href="#concerte-lista" className="btn btn-outline">
+                                VEZI CONCERTE
                             </a>
                         </div>
                     </div>
                 </section>
 
                 {afiseazaFormular && (
-                    <section className="categories" id="adauga-eveniment">
-                        <h2>ADAUGĂ EVENIMENT SPORTIV</h2>
+                    <section className="categories" id="adauga-concert">
+                        <h2>ADAUGĂ CONCERT</h2>
 
-                        <form className="event-form" onSubmit={adaugaEveniment}>
+                        <form className="event-form" onSubmit={adaugaConcert}>
                             <div className="form-group">
-                                <label>Titlul evenimentului *</label>
+                                <label>Titlul concertului *</label>
                                 <input
                                     type="text"
                                     name="titlu"
-                                    placeholder="Ex: Meci de fotbal FC Brașov"
+                                    placeholder="Ex: Concert live în Piața Sfatului"
                                     value={formular.titlu}
                                     onChange={schimbaCamp}
                                 />
                             </div>
 
                             <div className="form-group">
-                                <label>Categoria *</label>
+                                <label>Gen muzical *</label>
                                 <select
-                                    name="categorie"
-                                    value={formular.categorie}
+                                    name="gen"
+                                    value={formular.gen}
                                     onChange={schimbaCamp}
                                 >
-                                    {categorii.map((categorie) => (
-                                        <option key={categorie} value={categorie}>
-                                            {categorie}
+                                    {genuri.map((gen) => (
+                                        <option key={gen} value={gen}>
+                                            {gen}
                                         </option>
                                     ))}
                                 </select>
@@ -164,7 +165,7 @@ function Sport() {
                                     <input
                                         type="text"
                                         name="ora"
-                                        placeholder="Ex: 15:46"
+                                        placeholder="Ex: 20:30"
                                         value={formular.ora}
                                         onChange={schimbaCamp}
                                     />
@@ -176,7 +177,7 @@ function Sport() {
                                 <input
                                     type="text"
                                     name="locatie"
-                                    placeholder="Ex: Stadionul Tineretului, Brașov"
+                                    placeholder="Ex: Piața Sfatului, Brașov"
                                     value={formular.locatie}
                                     onChange={schimbaCamp}
                                 />
@@ -187,7 +188,7 @@ function Sport() {
                                 <input
                                     type="text"
                                     name="cost"
-                                    placeholder="Ex: Gratuit / 50 lei"
+                                    placeholder="Ex: Gratuit / 80 lei"
                                     value={formular.cost}
                                     onChange={schimbaCamp}
                                 />
@@ -197,73 +198,73 @@ function Sport() {
                                 <label>Descriere</label>
                                 <textarea
                                     name="descriere"
-                                    placeholder="Scrie câteva detalii despre eveniment..."
+                                    placeholder="Scrie câteva detalii despre concert..."
                                     value={formular.descriere}
                                     onChange={schimbaCamp}
                                 />
                             </div>
 
                             <button type="submit" className="btn btn-primary">
-                                Salvează eveniment
+                                Salvează concert
                             </button>
                         </form>
                     </section>
                 )}
 
-                {evenimente.length > 0 && (
-                    <section className="categories" id="sport-evenimente">
-                        <h2>EVENIMENTE SPORTIVE</h2>
+                {concerte.length > 0 && (
+                    <section className="categories" id="concerte-lista">
+                        <h2>CONCERTE ADĂUGATE</h2>
 
                         <div className="filter-menu">
                             <button
                                 type="button"
-                                className={categorieActiva === "Toate" ? "filter-btn active-filter" : "filter-btn"}
-                                onClick={() => setCategorieActiva("Toate")}
+                                className={genActiv === "Toate" ? "filter-btn active-filter" : "filter-btn"}
+                                onClick={() => setGenActiv("Toate")}
                             >
                                 Toate
                             </button>
 
-                            {categorii.map((categorie) => (
+                            {genuri.map((gen) => (
                                 <button
                                     type="button"
-                                    key={categorie}
-                                    className={categorieActiva === categorie ? "filter-btn active-filter" : "filter-btn"}
-                                    onClick={() => setCategorieActiva(categorie)}
+                                    key={gen}
+                                    className={genActiv === gen ? "filter-btn active-filter" : "filter-btn"}
+                                    onClick={() => setGenActiv(gen)}
                                 >
-                                    {categorie}
+                                    {gen}
                                 </button>
                             ))}
                         </div>
 
-                        {evenimenteFiltrate.length > 0 && (
+                        {concerteFiltrate.length > 0 && (
                             <div className="grid">
-                                {evenimenteFiltrate.map((eveniment) => (
-                                    <div className="card event-card" key={eveniment.id}>
+                                {concerteFiltrate.map((concert) => (
+                                    <div className="card event-card" key={concert.id}>
                                         <div className="card-img-container">
                                             <img
-                                                src={eveniment.imagine}
-                                                alt={eveniment.titlu}
+                                                src={concert.imagine}
+                                                alt={concert.titlu}
                                                 className="card-img-real"
                                             />
                                         </div>
 
                                         <div className="card-body event-card-body">
-                                            <h3>{eveniment.titlu}</h3>
+                                            <h3>{concert.titlu}</h3>
 
-                                            <p className="event-category">{eveniment.categorie}</p>
+                                            <p className="event-category">{concert.gen}</p>
 
                                             <div className="event-details">
-                                                <p><strong>Data:</strong> {eveniment.data}</p>
-                                                <p><strong>Ora:</strong> {eveniment.ora}</p>
-                                                <p><strong>Locație:</strong> {eveniment.locatie}</p>
+                                                <p><strong>Data:</strong> {concert.data}</p>
+                                                <p><strong>Ora:</strong> {concert.ora}</p>
+                                                <p><strong>Locație:</strong> {concert.locatie}</p>
 
-                                                {eveniment.cost && (
-                                                    <p><strong>Cost:</strong> {eveniment.cost}</p>
+                                                {concert.cost && (
+                                                    <p><strong>Cost:</strong> {concert.cost}</p>
                                                 )}
                                             </div>
 
-                                            {eveniment.descriere && (
-                                                <p className="event-description">{eveniment.descriere}</p>
+                                            {concert.descriere && (
+                                                <p className="event-description">{concert.descriere}</p>
                                             )}
 
                                             <div className="event-actions">
@@ -274,7 +275,7 @@ function Sport() {
                                                 <button
                                                     type="button"
                                                     className="delete-btn"
-                                                    onClick={() => stergeEveniment(eveniment.id)}
+                                                    onClick={() => stergeConcert(concert.id)}
                                                 >
                                                     Șterge
                                                 </button>
@@ -315,4 +316,4 @@ function Sport() {
     );
 }
 
-export default Sport;
+export default Concerte;

@@ -69,7 +69,7 @@ nav {
 }
 
 .sport-hero {
-    background-image: url('sport.png');
+    background-image: url('Spo.png');
 }
 
 .hero-content {
@@ -141,13 +141,12 @@ nav {
         margin-bottom: 40px;
         letter-spacing: 1px;
     }
-
 .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 380px));
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     justify-content: center;
-    gap: 30px;
-    row-gap: 40px;
+    gap: 25px;
+    row-gap: 35px;
     width: 100%;
 }
 .event-card {
@@ -381,6 +380,9 @@ footer {
 }
 
 @media (max-width: 768px) {
+    .grid {
+        grid-template-columns: 1fr;
+    }
     .hero {
         padding: 0 20px;
         text-align: center;
@@ -458,4 +460,7 @@ footer {
 .event-form button {
     width: 100%;
     border: none;
+}
+.concerts-hero {
+    background-image: url('Conc.png');
 }
