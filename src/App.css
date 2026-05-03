@@ -1,6 +1,6 @@
 ﻿:root {
     --primary-color: #990f4b;
-    --bg-color: #050505; 
+    --bg-color: #050505;
     --card-bg: #121212;
     --text-light: #ffffff;
     --text-muted: #aaaaaa;
@@ -18,7 +18,6 @@ body {
     color: var(--text-light);
     line-height: 1.6;
 }
-
 
 header {
     padding: 20px 0;
@@ -64,9 +63,13 @@ nav {
     padding: 0 10%;
     background-color: #010004;
     background-image: url('poza2.png');
-    background-size: 100% 100%; 
+    background-size: 100% 100%;
     background-position: center;
     background-repeat: no-repeat;
+}
+
+.sport-hero {
+    background-image: url('sport.png');
 }
 
 .hero-content {
@@ -75,17 +78,18 @@ nav {
 }
 
 .hero h1 {
-    font-size: 2rem; 
-    font-weight: 2000; 
-    line-height: 1.2; 
-    margin-bottom: 30px; 
+    font-size: 2rem;
+    font-weight: 2000;
+    line-height: 1.2;
+    margin-bottom: 30px;
 }
 
 .hero p {
-    font-size: 1.5rem; 
-    font-weight: 300; 
-    margin-bottom: 15px; 
+    font-size: 1.5rem;
+    font-weight: 300;
+    margin-bottom: 15px;
 }
+
 .btn-group {
     display: flex;
     gap: 15px;
@@ -125,7 +129,6 @@ nav {
         color: black;
     }
 
-
 .categories {
     max-width: 1200px;
     margin: 60px auto;
@@ -141,11 +144,17 @@ nav {
 
 .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 20px;
-    width: 100%
+    grid-template-columns: repeat(auto-fit, minmax(280px, 380px));
+    justify-content: center;
+    gap: 30px;
+    row-gap: 40px;
+    width: 100%;
 }
-
+.event-card {
+    max-width: 380px;
+    width: 100%;
+    margin-bottom: 20px;
+}
 .card {
     background-color: var(--card-bg);
     border: 1px solid var(--primary-color);
@@ -161,21 +170,39 @@ nav {
     .card:hover {
         transform: translateY(-5px);
     }
+
+.card-link {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+}
+
+    .card-link .card {
+        height: 100%;
+    }
+
 .card-img-container {
     width: 100%;
-    height: 180px; 
-    overflow: hidden; 
+    height: 180px;
+    overflow: hidden;
     background-color: #000;
-    border-top-left-radius: 11px; 
+    border-top-left-radius: 11px;
     border-top-right-radius: 11px;
 }
 
 .card-img-real {
     width: 100%;
     height: 100%;
-    object-fit: cover; 
+    object-fit: cover;
     display: block;
 }
+
+.card-body {
+    padding: 20px;
+    width: 100%;
+    text-align: center;
+}
+
 .card h3 {
     font-size: 18px;
     margin-bottom: 5px;
@@ -184,7 +211,7 @@ nav {
 .card p {
     font-size: 14px;
     color: var(--text-muted);
-    margin-bottom: 20px;
+    margin-bottom: 14px;
 }
 
 .btn-card {
@@ -202,9 +229,97 @@ nav {
     .btn-card:hover {
         background-color: #7a0c3c;
     }
+
+.filter-menu {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 15px;
+    margin-bottom: 40px;
+}
+
+.filter-btn {
+    background-color: transparent;
+    color: white;
+    border: 2px solid var(--primary-color);
+    padding: 10px 24px;
+    border-radius: 25px;
+    font-size: 13px;
+    font-weight: bold;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: 0.3s;
+}
+
+    .filter-btn:hover {
+        background-color: var(--primary-color);
+    }
+
+.active-filter {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.event-form {
+    max-width: 700px;
+    margin: 0 auto 40px;
+    background-color: var(--card-bg);
+    border: 1px solid var(--primary-color);
+    border-radius: 12px;
+    padding: 25px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+    .event-form input,
+    .event-form select,
+    .event-form textarea {
+        width: 100%;
+        padding: 12px 15px;
+        background-color: #050505;
+        color: white;
+        border: 1px solid #333;
+        border-radius: 8px;
+        outline: none;
+    }
+
+    .event-form textarea {
+        min-height: 100px;
+        resize: vertical;
+    }
+
+        .event-form input:focus,
+        .event-form select:focus,
+        .event-form textarea:focus {
+            border-color: var(--primary-color);
+        }
+
+.empty-message {
+    color: var(--text-muted);
+    margin-top: 20px;
+}
+
+.delete-btn {
+    margin-top: 12px;
+    background-color: transparent;
+    color: #ff5c8a;
+    border: 1px solid #ff5c8a;
+    padding: 7px 18px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+    .delete-btn:hover {
+        background-color: #ff5c8a;
+        color: white;
+    }
+
 footer {
     display: flex;
-    justify-content: space-around; 
+    justify-content: space-around;
     align-items: flex-start;
     padding: 40px 20px;
     background-color: #000;
@@ -219,9 +334,8 @@ footer {
     gap: 10px;
 }
 
-
 .footer-links a {
-    color: #ff0055; 
+    color: #ff0055;
     text-decoration: none;
     font-size: 0.8rem;
     display: block;
@@ -234,7 +348,6 @@ footer {
     margin-bottom: 10px;
 }
 
-
 .social-icons {
     display: flex;
     gap: 15px;
@@ -245,7 +358,7 @@ footer {
     height: 30px;
     background-color: #ff0055;
     color: white;
-    border-radius: 50%; 
+    border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -266,6 +379,7 @@ footer {
     font-size: 0.8rem;
     border-bottom: 1px solid #333;
 }
+
 @media (max-width: 768px) {
     .hero {
         padding: 0 20px;
@@ -275,16 +389,73 @@ footer {
 
     .btn-group {
         justify-content: center;
+        flex-direction: column;
     }
 
-    .footer-content {
+    footer {
         flex-direction: column;
         text-align: center;
+        gap: 25px;
+    }
+
+    .footer-section {
+        width: 100%;
     }
 
     .social-icons {
         justify-content: center;
     }
 }
+.event-card .card-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
 
+.event-category {
+    color: var(--primary-color) !important;
+    font-weight: bold;
+    text-transform: uppercase;
+}
 
+.event-form button {
+    width: 100%;
+    border: none;
+}
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    text-align: left;
+}
+
+    .form-group label {
+        color: white;
+        font-size: 13px;
+        font-weight: bold;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+.event-card .card-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.event-category {
+    color: var(--primary-color) !important;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.event-form button {
+    width: 100%;
+    border: none;
+}
