@@ -221,9 +221,9 @@ function Nightlife() {
                 <div className="footer-section">
                     <p className="footer-title">SOCIAL MEDIA</p>
                     <div className="social-icons">
-                        <a href="#" className="icon-circle">f</a>
-                        <a href="#" className="icon-circle">ig</a>
-                        <a href="#" className="icon-circle">t</a>
+                        <a href="https://facebook.com" target="_blank" rel="noopener noreferrer" className="icon-circle">f</a>
+                        <a href="https://instagram.com" target="_blank" rel="noopener noreferrer" className="icon-circle">ig</a>
+                        <a href="https://tiktok.com" target="_blank" rel="noopener noreferrer" className="icon-circle">t</a>
                     </div>
                 </div>
                 <div className="footer-section">
