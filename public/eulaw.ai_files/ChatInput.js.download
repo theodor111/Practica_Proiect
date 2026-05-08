@@ -1,0 +1,930 @@
+/**
+ * Chat Input Component
+ * Handles user message input, file attachments, and jurisdiction filtering
+ */
+
+// Get React hooks from window (loaded via CDN)
+
+// Constants
+const MAX_FILES = 5;
+const MAX_JURISDICTIONS = 3;
+
+// Jurisdiction metadata for flag display (using flagcdn.com for reliable flag images)
+// Order: EU pinned first, then live jurisdictions alphabetically, then beta
+// jurisdictions alphabetically. Iteration order of this object (and of the
+// `defaults` object below) drives display order in the selected-flags row,
+// the dropdown list, and the DataScope card.
+const JURISDICTION_META = {
+  EU: {
+    flag: 'https://flagcdn.com/w80/eu.webp',
+    label: 'European Union & International',
+    description: 'Includes EU treaties, regulations, directives, decisions, case law, and international conventions.'
+  },
+  DK: {
+    flag: 'https://flagcdn.com/w80/dk.webp',
+    label: 'Denmark (DK)',
+    description: 'Includes Danish laws, executive orders, court judgments, administrative decisions, tax rulings, and parliamentary documents.'
+  },
+  FI: {
+    flag: 'https://flagcdn.com/w80/fi.webp',
+    label: 'Finland (FI)',
+    description: 'Beta: Finnish legislation, government decrees, and select court decisions. Coverage still expanding.',
+    beta: true
+  },
+  IT: {
+    flag: 'https://flagcdn.com/w80/it.webp',
+    label: 'Italy (IT)',
+    description: 'Beta: Italian legislation, regulations, and select court decisions. Coverage still expanding.',
+    beta: true
+  },
+  MT: {
+    flag: 'https://flagcdn.com/w80/mt.webp',
+    label: 'Malta (MT)',
+    description: 'Beta: Maltese legislation, subsidiary legislation, and select court decisions. Coverage still expanding.',
+    beta: true
+  },
+  NL: {
+    flag: 'https://flagcdn.com/w80/nl.webp',
+    label: 'Netherlands (NL)',
+    description: 'Beta: Dutch legislation, regulations, and select court decisions. Coverage still expanding.',
+    beta: true
+  },
+  NO: {
+    flag: 'https://flagcdn.com/w80/no.webp',
+    label: 'Norway (NO)',
+    description: 'Beta: Norwegian legislation, regulations, and select court judgments. Coverage still expanding.',
+    beta: true
+  },
+  PT: {
+    flag: 'https://flagcdn.com/w80/pt.webp',
+    label: 'Portugal (PT)',
+    description: 'Beta: Portuguese legislation, regulations, and select court decisions. Coverage still expanding.',
+    beta: true
+  },
+  SE: {
+    flag: 'https://flagcdn.com/w80/se.webp',
+    label: 'Sweden (SE)',
+    description: 'Beta: Swedish legislation, government bills, and select court decisions. Coverage still expanding.',
+    beta: true
+  }
+};
+
+// Chat Input Component
+const ChatInput = ({ onSendMessage, onStopGeneration, disabled, isStreaming, mobileNavComponent, externalFiles, onExternalFilesProcessed, onDocumentUploaded, freeTierStatus, onSubscribeClick, inForceFilter, onInForceFilterChange, focusTrigger }) => {
+  const JURISDICTION_FILTER_STORAGE_KEY = 'jurisdictionFilter';
+
+  const [message, setMessage] = React.useState('');
+  const [isFadingOut, setIsFadingOut] = React.useState(false);
+  const [attachedFiles, setAttachedFiles] = React.useState([]);
+  const fileInputRef = React.useRef(null);
+  const textareaRef = React.useRef(null);
+  const uploadPromisesRef = React.useRef(new Map());
+
+  // Helper to focus textarea and trigger mobile keyboard
+  const focusTextarea = React.useCallback(() => {
+    if (textareaRef.current) {
+      const textarea = textareaRef.current;
+
+      // For mobile: temporarily make it readonly, focus, then remove readonly
+      // This trick helps trigger the keyboard on some mobile browsers
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+      if (isMobile) {
+        textarea.setAttribute('readonly', 'readonly');
+        textarea.focus();
+        textarea.removeAttribute('readonly');
+        // Also try clicking to trigger keyboard
+        textarea.click();
+      } else {
+        textarea.focus();
+      }
+    }
+  }, []);
+
+  // Load pre-filled query from landing page hero input
+  React.useEffect(() => {
+    try {
+      const heroQuery = localStorage.getItem('eulaw_hero_query');
+      if (heroQuery) {
+        setMessage(heroQuery);
+        localStorage.removeItem('eulaw_hero_query');
+      }
+    } catch(e) {}
+  }, []);
+
+  // Auto-focus on mount (initial load after login)
+  React.useEffect(() => {
+    // Small delay to ensure DOM is ready
+    const timer = setTimeout(focusTextarea, 150);
+    return () => clearTimeout(timer);
+  }, [focusTextarea]);
+
+  // Focus when focusTrigger changes (new chat created)
+  React.useEffect(() => {
+    if (focusTrigger) {
+      // Small delay to ensure state updates are complete
+      const timer = setTimeout(focusTextarea, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [focusTrigger, focusTextarea]);
+
+  // Animated placeholder — full text with fade in/out between phrases
+  const [animatedPlaceholder, setAnimatedPlaceholder] = React.useState('');
+  const [placeholderFading, setPlaceholderFading] = React.useState(false);
+  React.useEffect(() => {
+    if (message || disabled) return;
+
+    const texts = [
+      "Write your message here..."
+    ];
+    const DISPLAY_DURATION = 10000;
+    const FADE_DURATION = 1500;
+
+    let textIndex = 0;
+    let timeoutId;
+
+    setAnimatedPlaceholder(texts[0]);
+    setPlaceholderFading(false);
+
+    function cycle() {
+      // Start fade out
+      setPlaceholderFading(true);
+      timeoutId = setTimeout(() => {
+        // Switch text while faded out, then fade in
+        textIndex = (textIndex + 1) % texts.length;
+        setAnimatedPlaceholder(texts[textIndex]);
+        setPlaceholderFading(false);
+        // Wait for display duration then cycle again
+        timeoutId = setTimeout(cycle, DISPLAY_DURATION);
+      }, FADE_DURATION);
+    }
+
+    timeoutId = setTimeout(cycle, DISPLAY_DURATION);
+    return () => clearTimeout(timeoutId);
+  }, [message, disabled]);
+
+  // Validate and add a file to the attachedFiles array, starting upload immediately
+  const addFile = (file) => {
+    // Library documents are already validated and stored in S3
+    if (file.isLibraryDocument) {
+      // Check if we've reached the max files limit
+      if (attachedFiles.length >= MAX_FILES) {
+        alert(`Maximum ${MAX_FILES} files allowed`);
+        return false;
+      }
+      // Check for duplicate by itemId for library docs
+      const isDuplicate = attachedFiles.some(f => f.isLibraryDocument && f.itemId === file.itemId);
+      if (isDuplicate) {
+        alert('Document already attached');
+        return false;
+      }
+      setAttachedFiles(prev => [...prev, {
+        id: `lib-${file.itemId}`,
+        name: file.name,
+        size: file.size,
+        isLibraryDocument: true,
+        itemId: file.itemId,
+        format: file.format,
+        uploadState: 'done'
+      }]);
+      console.log('Library document attached:', file.name, file.itemId, 'Total files:', attachedFiles.length + 1);
+      return true;
+    }
+
+    // Regular file validation - check MIME type and file extension
+    const validTypes = ['application/pdf', 'text/plain', 'text/html', 'text/markdown',
+                       'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                       'application/rtf'];
+    const validExtensions = ['pdf', 'txt', 'html', 'md', 'doc', 'docx', 'rtf'];
+    const fileExtension = file.name.split('.').pop()?.toLowerCase();
+
+    if (!validTypes.includes(file.type) && !validExtensions.includes(fileExtension)) {
+      alert('Supported file types: PDF, TXT, HTML, MD, DOC, DOCX, RTF');
+      return false;
+    }
+
+    const maxSize = 5 * 1024 * 1024; // 5MB per file
+    if (file.size > maxSize) {
+      alert('File size must be under 5MB');
+      return false;
+    }
+
+    // Check if we've reached the max files limit
+    if (attachedFiles.length >= MAX_FILES) {
+      alert(`Maximum ${MAX_FILES} files allowed`);
+      return false;
+    }
+
+    // Check for duplicate files (by name and size)
+    const isDuplicate = attachedFiles.some(f => f.name === file.name && f.size === file.size);
+    if (isDuplicate) {
+      alert('File already attached');
+      return false;
+    }
+
+    // Show file immediately with uploading state
+    const fileId = `file-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setAttachedFiles(prev => [...prev, {
+      id: fileId,
+      name: file.name,
+      size: file.size,
+      isLibraryDocument: false,
+      itemId: null,
+      format: null,
+      uploadState: 'uploading'
+    }]);
+    console.log('File attached (uploading):', file.name, file.type, file.size, 'Total files:', attachedFiles.length + 1);
+
+    // Start upload to library immediately in the background
+    const uploadPromise = window.apiService.uploadFileToLibrary(file)
+      .then(result => {
+        setAttachedFiles(prev => prev.map(f =>
+          f.id === fileId
+            ? { ...f, uploadState: 'done', itemId: result.itemId, format: result.format, name: result.name || f.name, isLibraryDocument: true }
+            : f
+        ));
+        uploadPromisesRef.current.delete(fileId);
+        console.log('File upload complete:', file.name, result.itemId);
+        if (onDocumentUploaded) onDocumentUploaded();
+        return result;
+      })
+      .catch(error => {
+        console.error('File upload failed:', file.name, error);
+        setAttachedFiles(prev => prev.map(f =>
+          f.id === fileId ? { ...f, uploadState: 'error' } : f
+        ));
+        uploadPromisesRef.current.delete(fileId);
+        throw error;
+      });
+    uploadPromisesRef.current.set(fileId, uploadPromise);
+
+    return true;
+  };
+
+  // Handle external files from drag-and-drop
+  React.useEffect(() => {
+    if (externalFiles && externalFiles.length > 0) {
+      for (const file of externalFiles) {
+        addFile(file);
+      }
+      onExternalFilesProcessed?.();
+    }
+  }, [externalFiles, onExternalFilesProcessed]);
+
+  // Filter state — EU and DK selected by default, beta jurisdictions off.
+  // Key order must match JURISDICTION_META (see comment there).
+  const [jurisdictionFilter, setJurisdictionFilter] = React.useState(() => {
+    const defaults = { EU: true, DK: true, FI: false, IT: false, MT: false, NL: false, NO: false, PT: false, SE: false };
+    const saved = localStorage.getItem(JURISDICTION_FILTER_STORAGE_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed === 'object' && parsed !== null) {
+          // Merge saved values with defaults - saved values override defaults for known keys
+          const merged = { ...defaults };
+          for (const key of Object.keys(defaults)) {
+            if (typeof parsed[key] === 'boolean') {
+              merged[key] = parsed[key];
+            }
+          }
+          return merged;
+        }
+      } catch (e) {
+        console.warn('Invalid jurisdictionFilter in localStorage, using defaults');
+      }
+    }
+    return defaults;
+  });
+
+  // Persist jurisdiction filter to localStorage when it changes
+  React.useEffect(() => {
+    localStorage.setItem(JURISDICTION_FILTER_STORAGE_KEY, JSON.stringify(jurisdictionFilter));
+    window.dispatchEvent(new CustomEvent('jurisdictionFilterChanged'));
+  }, [jurisdictionFilter]);
+
+  // In force filter: 0 = current only, 1 = all, 2 = historical only
+  // Use props if provided (controlled from app.js), otherwise local state
+  const [localInForce, setLocalInForce] = React.useState(0);
+  const inForce = inForceFilter !== undefined ? inForceFilter : localInForce;
+  const setInForce = onInForceFilterChange || setLocalInForce;
+  const [showJurisdictionDropdown, setShowJurisdictionDropdown] = React.useState(false);
+  const [showJurisdictionTooltip, setShowJurisdictionTooltip] = React.useState(false);
+  const [showJurisdictionInfo, setShowJurisdictionInfo] = React.useState(null); // Which jurisdiction info is shown (EU, DK, or null)
+  const [hoveredFlag, setHoveredFlag] = React.useState(null); // Which flag is being hovered
+  const jurisdictionRef = React.useRef(null);
+
+  // Close dropdowns when clicking outside
+  React.useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (jurisdictionRef.current && !jurisdictionRef.current.contains(event.target)) {
+        setShowJurisdictionDropdown(false);
+        setShowJurisdictionInfo(null); // Close info tooltip when clicking outside
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Escape key to stop generation
+  React.useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && isStreaming && onStopGeneration) {
+        e.preventDefault();
+        onStopGeneration();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isStreaming, onStopGeneration]);
+
+  // Track previous streaming state to detect the true→false transition
+  const prevStreamingRef = React.useRef(false);
+  React.useEffect(() => {
+    if (prevStreamingRef.current === true && isStreaming === false) {
+      // Streaming just stopped — start fade-out animation
+      setIsFadingOut(true);
+      const timer = setTimeout(() => setIsFadingOut(false), 1000);
+      return () => clearTimeout(timer);
+    }
+    prevStreamingRef.current = isStreaming;
+  }, [isStreaming]);
+
+  // Auto-resize textarea based on content
+  const resizeTextarea = React.useCallback(() => {
+    if (textareaRef.current) {
+      // Reset height to auto to get the correct scrollHeight
+      textareaRef.current.style.height = 'auto';
+
+      // Calculate the new height
+      const scrollHeight = textareaRef.current.scrollHeight;
+      // Use visualViewport.height on mobile — window.innerHeight doesn't shrink
+      // when the iOS Safari keyboard is open, causing the textarea to overflow
+      const viewportHeight = window.visualViewport?.height || window.innerHeight;
+      const maxHeight = viewportHeight * 0.3; // 30% of visible viewport height
+      const minHeight = 42; // Minimum height (approximately 1 row)
+
+      // Set the new height, capped at max
+      const newHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight);
+      textareaRef.current.style.height = newHeight + 'px';
+
+      // Add or remove scrollbar based on content
+      if (scrollHeight > maxHeight) {
+        textareaRef.current.style.overflowY = 'auto';
+      } else {
+        textareaRef.current.style.overflowY = 'hidden';
+      }
+    }
+  }, []);
+
+  React.useEffect(() => {
+    resizeTextarea();
+  }, [message, resizeTextarea]);
+
+  // Re-layout when returning from external page (bfcache / tab switch)
+  // Fixes intermittent issue where mobile browser viewport shifts after navigating
+  // away and back, causing the input area to be cut off at the bottom
+  React.useEffect(() => {
+    const resetViewport = () => {
+      // Reset any accidental document scroll (body has overflow:hidden but
+      // mobile browsers can still shift it when navigating away and back)
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      resizeTextarea();
+    };
+
+    const handlePageShow = (e) => {
+      if (e.persisted) {
+        // Page restored from bfcache — reset viewport and textarea
+        resetViewport();
+        // Delayed reset to catch browser chrome animation completing
+        setTimeout(resetViewport, 100);
+        setTimeout(resetViewport, 300);
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Tab became visible again — reset viewport and textarea
+        resetViewport();
+        setTimeout(resetViewport, 100);
+      }
+    };
+
+    // Listen for visualViewport resize (mobile keyboard + browser chrome show/hide)
+    const handleViewportResize = () => {
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      // Recalculate textarea max-height based on new visible viewport
+      resizeTextarea();
+    };
+
+    window.addEventListener('pageshow', handlePageShow);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.visualViewport?.addEventListener('resize', handleViewportResize);
+    return () => {
+      window.removeEventListener('pageshow', handlePageShow);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.visualViewport?.removeEventListener('resize', handleViewportResize);
+    };
+  }, [resizeTextarea]);
+
+  const handleFileSelect = (event) => {
+    const files = Array.from(event.target.files);
+    if (!files.length) return;
+
+    // Add each selected file
+    for (const file of files) {
+      addFile(file);
+    }
+
+    // Reset input to allow selecting the same file again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const removeFile = (index) => {
+    setAttachedFiles(prev => {
+      const removed = prev[index];
+      if (removed) uploadPromisesRef.current.delete(removed.id);
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
+  const clearAllFiles = () => {
+    uploadPromisesRef.current.clear();
+    setAttachedFiles([]);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!message.trim() || disabled || isStreaming) {
+      console.log('Message text required or disabled:', { message: message.trim(), disabled, isStreaming });
+      return;
+    }
+
+    // Check if at least one jurisdiction is selected
+    const hasJurisdictionSelected = Object.values(jurisdictionFilter).some(v => v);
+    if (!hasJurisdictionSelected) {
+      console.log('No jurisdiction selected, showing tooltip');
+      setShowJurisdictionTooltip(true);
+      // Tooltip stays until user clicks jurisdiction button
+      return;
+    }
+
+    console.log('Attempting to send message:', message.trim(), 'with files:', attachedFiles.map(f => f.name));
+
+    // Check for failed uploads
+    if (attachedFiles.some(f => f.uploadState === 'error')) {
+      alert('One or more files failed to upload. Please remove them and try again.');
+      return;
+    }
+
+    // Wait for any pending uploads to finish
+    if (uploadPromisesRef.current.size > 0) {
+      try {
+        await Promise.all(uploadPromisesRef.current.values());
+      } catch {
+        alert('One or more files failed to upload. Please remove them and try again.');
+        return;
+      }
+    }
+
+    // Store values before clearing — files are now resolved with itemIds
+    const messageToSend = message.trim();
+    const filesToSend = attachedFiles
+      .filter(f => f.uploadState === 'done')
+      .map(f => ({ itemId: f.itemId, name: f.name, size: f.size, format: f.format, isLibraryDocument: true }));
+
+    // Build filters object from current filter state
+    // Within a category: OR logic (DK + EU = search both)
+    // Across categories: AND logic (jurisdiction AND document_family must both match)
+    // Note: EU selection automatically includes INTL (international) content
+    const selectedJurisdictions = Object.entries(jurisdictionFilter).filter(([_, v]) => v).map(([k]) => k);
+    // If EU is selected, also include INTL in the search
+    if (selectedJurisdictions.includes('EU') && !selectedJurisdictions.includes('INTL')) {
+      selectedJurisdictions.push('INTL');
+    }
+    const activeFilters = {
+      jurisdiction: selectedJurisdictions,
+      documentFamily: [],
+      inForce: inForce,
+    };
+    console.log('Active filters:', activeFilters);
+
+    // Clear input immediately
+    setMessage('');
+    uploadPromisesRef.current.clear();
+    setAttachedFiles([]);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    // Reset textarea height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '42px';
+    }
+
+    try {
+      await onSendMessage(messageToSend, filesToSend, activeFilters);
+      console.log('Message sent successfully');
+
+      // Auto-focus back to textarea after sending
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+        }
+      }, 100);
+    } catch (error) {
+      console.error('Error sending message:', error);
+      alert('Failed to send message: ' + error.message);
+
+      // Also focus on error so user can try again
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+        }
+      }, 100);
+    }
+  };
+
+  return React.createElement('div', {
+    className: 'chat-input-area'
+  },
+    // Mobile navigation positioned over input
+    mobileNavComponent,
+
+    React.createElement('div', {
+      className: 'input-wrapper'
+    },
+      React.createElement('div', {
+        className: 'input-with-files' + (isStreaming ? ' breathing' : '') + (isFadingOut ? ' breathing-fade-out' : '')
+      },
+        // Show attached files if present - NOW AT TOP
+        attachedFiles.length > 0 && React.createElement('div', {
+          className: 'attached-files-container'
+        },
+          attachedFiles.map((file, index) =>
+            React.createElement('div', {
+              key: file.id || `${file.name}-${index}`,
+              className: 'attached-file-preview'
+                + (file.isLibraryDocument && file.uploadState === 'done' ? ' library-document' : '')
+                + (file.uploadState === 'uploading' ? ' uploading' : '')
+                + (file.uploadState === 'error' ? ' upload-error' : '')
+            },
+              React.createElement('i', {
+                className: file.uploadState === 'uploading' ? 'fas fa-circle-notch fa-spin attached-file-icon uploading-icon'
+                  : file.uploadState === 'error' ? 'fas fa-exclamation-triangle attached-file-icon error-icon'
+                  : file.isLibraryDocument ? 'fas fa-folder-open attached-file-icon library-icon'
+                  : 'fas fa-paperclip attached-file-icon'
+              }),
+              React.createElement('span', {
+                className: 'attached-file-text'
+              }, `${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)`),
+              React.createElement('button', {
+                type: 'button',
+                onClick: () => removeFile(index),
+                className: 'attached-file-remove',
+                title: 'Remove file'
+              }, '×')
+            )
+          ),
+          // Show "Clear all" button if more than 1 file
+          attachedFiles.length > 1 && React.createElement('button', {
+            type: 'button',
+            onClick: clearAllFiles,
+            className: 'clear-all-files',
+            title: 'Clear all files'
+          }, 'Clear all')
+        ),
+
+        React.createElement('div', {
+          className: 'text-input-area'
+        },
+          // Animated placeholder overlay (fades between phrases)
+          !message && !disabled && React.createElement('div', {
+            className: `chat-input-placeholder${placeholderFading ? ' fading' : ''}`,
+            onClick: () => textareaRef.current?.focus()
+          }, animatedPlaceholder),
+          React.createElement('textarea', {
+            ref: textareaRef,
+            className: 'chat-input chat-input-textarea',
+            value: message,
+            onChange: (e) => setMessage(e.target.value),
+            placeholder: disabled ? "Processing..." : "",
+            disabled: disabled,
+            rows: 1,
+            // No maxLength restriction
+            onPaste: (e) => {
+              const files = Array.from(e.clipboardData.files);
+              if (files.length > 0) {
+                e.preventDefault();
+                for (const file of files) {
+                  addFile(file);
+                }
+              }
+            },
+            onKeyDown: (e) => {
+              // Enter to submit, Shift+Enter for newline
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSubmit(e);
+              }
+            }
+          })
+        ),
+
+        React.createElement('div', {
+          className: 'input-menu-bar'
+        },
+          React.createElement('input', {
+            ref: fileInputRef,
+            type: 'file',
+            accept: '.pdf,.txt,.html,.md,.doc,.docx,.csv,.xls,.xlsx',
+            multiple: true,
+            onChange: handleFileSelect,
+            className: 'hidden-input'
+          }),
+          React.createElement('button', {
+            type: 'button',
+            className: 'add-file-button add-file-btn',
+            onClick: () => fileInputRef.current?.click(),
+            title: 'Attach document (PDF, DOC, TXT, etc.)',
+            disabled: disabled
+          }, React.createElement('i', { className: 'fas fa-paperclip' })),
+
+          // Divider between attachment and filters
+          React.createElement('div', {
+            className: 'filter-divider'
+          }),
+
+          // Filters label
+          React.createElement('span', {
+            className: 'filters-label',
+            title: 'filter search results by jurisdiction and legal status'
+          }, 'Jurisdiction:'),
+
+          // Jurisdiction flags container
+          React.createElement('div', {
+            ref: jurisdictionRef,
+            className: 'jurisdiction-flags-container',
+            title: 'select jurisdictions to search'
+          },
+            // Render selected jurisdiction flags
+            Object.entries(jurisdictionFilter)
+              .filter(([_, selected]) => selected)
+              .map(([jurisdiction]) =>
+                React.createElement('div', {
+                  key: jurisdiction,
+                  className: `jurisdiction-flag${hoveredFlag === jurisdiction ? ' hover-active' : ''}`,
+                  onClick: (e) => {
+                    // Don't remove if clicking the info icon
+                    if (e.target.closest('.flag-info-icon')) return;
+                    // Remove this jurisdiction
+                    setJurisdictionFilter(prev => ({ ...prev, [jurisdiction]: false }));
+                  },
+                  onMouseEnter: (e) => {
+                    // Only set hover if not entering from info icon
+                    if (!e.target.closest('.flag-info-icon')) {
+                      setHoveredFlag(jurisdiction);
+                    }
+                  },
+                  onMouseLeave: () => setHoveredFlag(null),
+                  title: `Click to remove ${JURISDICTION_META[jurisdiction].label}`
+                },
+                  React.createElement('img', {
+                    src: JURISDICTION_META[jurisdiction].flag,
+                    alt: JURISDICTION_META[jurisdiction].label
+                  }),
+                  // X icon overlay (shows on hover)
+                  React.createElement('div', {
+                    className: 'flag-remove-icon'
+                  },
+                    React.createElement('i', { className: 'fas fa-times' })
+                  ),
+                  // Info icon overlay on upper right
+                  React.createElement('div', {
+                    className: 'flag-info-icon',
+                    onClick: (e) => {
+                      e.stopPropagation();
+                      setShowJurisdictionInfo(showJurisdictionInfo === jurisdiction ? null : jurisdiction);
+                    },
+                    onMouseEnter: (e) => {
+                      e.stopPropagation();
+                      setHoveredFlag(null); // Clear flag hover when entering info icon
+                    },
+                    onMouseLeave: (e) => {
+                      // Restore flag hover when leaving info icon (if still inside flag)
+                      const flagEl = e.currentTarget.closest('.jurisdiction-flag');
+                      if (flagEl && flagEl.matches(':hover')) {
+                        setHoveredFlag(jurisdiction);
+                      }
+                    }
+                  },
+                    React.createElement('i', { className: 'fas fa-info-circle' })
+                  ),
+                  // Info tooltip (shows when (i) is clicked)
+                  showJurisdictionInfo === jurisdiction && React.createElement('div', {
+                    className: 'flag-info-tooltip',
+                    onClick: (e) => e.stopPropagation()
+                  }, JURISDICTION_META[jurisdiction].description),
+                  // Hover tooltip (shows label on hover)
+                  hoveredFlag === jurisdiction && showJurisdictionInfo !== jurisdiction && React.createElement('div', {
+                    className: 'jurisdiction-flag-tooltip'
+                  }, JURISDICTION_META[jurisdiction].label)
+                )
+              ),
+
+            // Show (+) button if less than max jurisdictions selected
+            Object.values(jurisdictionFilter).filter(v => v).length < MAX_JURISDICTIONS &&
+              React.createElement('button', {
+                type: 'button',
+                className: `jurisdiction-add-btn${showJurisdictionDropdown ? ' active' : ''}`,
+                onClick: () => {
+                  setShowJurisdictionDropdown(!showJurisdictionDropdown);
+                  setShowJurisdictionTooltip(false);
+                },
+                title: 'Add jurisdiction'
+              }, '+'),
+
+            // Dropdown menu showing unselected jurisdictions
+            showJurisdictionDropdown && React.createElement('div', {
+              className: 'filter-dropdown',
+              ref: (el) => {
+                if (el) {
+                  const container = el.parentElement;
+                  const rect = container.getBoundingClientRect();
+                  const dropdownHeight = el.scrollHeight;
+                  const spaceAbove = rect.top;
+                  // Position fixed to escape overflow:hidden parents
+                  const vpHeight = window.visualViewport?.height || window.innerHeight;
+                  el.style.position = 'fixed';
+                  el.style.left = `${rect.left}px`;
+                  if (spaceAbove >= dropdownHeight + 8) {
+                    // Enough room above — open upward
+                    el.style.bottom = `${vpHeight - rect.top + 8}px`;
+                    el.style.top = 'auto';
+                    el.style.maxHeight = `${spaceAbove - 16}px`;
+                  } else {
+                    // Not enough room above — open downward
+                    el.style.top = `${rect.bottom + 8}px`;
+                    el.style.bottom = 'auto';
+                    el.style.maxHeight = `${vpHeight - rect.bottom - 16}px`;
+                  }
+                }
+              }
+            },
+              // Only show jurisdictions that aren't already selected
+              ['EU', 'DK', 'FI', 'IT', 'MT', 'NL', 'NO', 'PT', 'SE']
+                .filter(jurisdiction => !jurisdictionFilter[jurisdiction])
+                .map(jurisdiction =>
+                  React.createElement('div', {
+                    key: jurisdiction,
+                    onClick: () => {
+                      setJurisdictionFilter(prev => ({ ...prev, [jurisdiction]: true }));
+                      // Always close dropdown, info tooltip, and hover state when jurisdiction is selected
+                      setShowJurisdictionDropdown(false);
+                      setShowJurisdictionInfo(null);
+                      setHoveredFlag(null);
+                    },
+                    className: 'filter-dropdown-item'
+                  },
+                    React.createElement('img', {
+                      src: JURISDICTION_META[jurisdiction].flag,
+                      alt: jurisdiction,
+                      style: { width: '20px', height: '20px', borderRadius: '50%', marginRight: '0.5rem', objectFit: 'cover' }
+                    }),
+                    JURISDICTION_META[jurisdiction].label,
+                    JURISDICTION_META[jurisdiction].beta && React.createElement('span', {
+                      className: 'beta-label'
+                    }, '[BETA]'),
+                    React.createElement('div', { className: 'flex-spacer' }),
+                    React.createElement('div', {
+                      className: 'info-icon-container'
+                    },
+                      React.createElement('i', {
+                        className: `fas fa-info-circle info-icon${showJurisdictionInfo === jurisdiction ? ' active' : ''}`,
+                        onClick: (e) => {
+                          e.stopPropagation();
+                          setShowJurisdictionInfo(showJurisdictionInfo === jurisdiction ? null : jurisdiction);
+                        }
+                      }),
+                      showJurisdictionInfo === jurisdiction && React.createElement('div', {
+                        className: 'jurisdiction-tooltip',
+                        ref: (el) => {
+                          if (el) {
+                            const iconRect = el.previousSibling?.getBoundingClientRect();
+                            if (iconRect) {
+                              el.style.top = `${iconRect.bottom + 8}px`;
+                              const tooltipWidth = 200;
+                              let leftPos = iconRect.left;
+                              if (leftPos + tooltipWidth > window.innerWidth - 10) {
+                                leftPos = window.innerWidth - tooltipWidth - 10;
+                              }
+                              if (leftPos < 10) leftPos = 10;
+                              el.style.left = `${leftPos}px`;
+                            }
+                          }
+                        },
+                        onClick: (e) => {
+                          e.stopPropagation();
+                          // Clicking the tooltip also selects the jurisdiction
+                          setJurisdictionFilter(prev => ({ ...prev, [jurisdiction]: true }));
+                          setShowJurisdictionDropdown(false);
+                          setShowJurisdictionInfo(null);
+                          setHoveredFlag(null);
+                        }
+                      }, JURISDICTION_META[jurisdiction].description)
+                    )
+                  )
+                ),
+              // Divider
+              React.createElement('div', { className: 'filter-dropdown-divider' }),
+              // Coming soon jurisdictions (DE is next, others more distant)
+              ['DE', 'NL', 'ES', 'IT', 'PL', 'BE', 'LU', 'IE', 'FR'].map(jurisdiction =>
+                React.createElement('div', {
+                  key: jurisdiction,
+                  className: `filter-dropdown-item disabled${jurisdiction !== 'DE' ? ' very-dim' : ''}`
+                },
+                  React.createElement('span', { className: 'flex-1' }, jurisdiction.toLowerCase()),
+                  React.createElement('span', { className: `coming-soon-label${jurisdiction !== 'DE' ? ' dim' : ''}` }, 'coming soon')
+                )
+              )
+            ),
+
+            // Validation tooltip (shows when trying to submit with no jurisdictions)
+            showJurisdictionTooltip && React.createElement('div', {
+              className: 'jurisdiction-validation-tooltip'
+            },
+              'please select jurisdiction',
+              React.createElement('div', { className: 'tooltip-arrow' }),
+              React.createElement('div', { className: 'tooltip-arrow-inner' })
+            )
+          ),
+
+          // Divider between jurisdiction and in_force toggle
+          React.createElement('div', {
+            className: 'filter-divider'
+          }),
+
+          // In Force three-state toggle
+          React.createElement('div', {
+            className: 'in-force-toggle-container',
+            title: 'select current, all or historic legislation'
+          },
+            // Label
+            React.createElement('span', {
+              className: 'in-force-label'
+            }, inForce === 0 ? 'current' : inForce === 2 ? 'historic' : 'all'),
+            // Three-state toggle track
+            React.createElement('div', {
+              className: 'in-force-track',
+              onClick: () => {
+                setInForce((prev) => (prev + 1) % 3);
+              }
+            },
+              // Toggle handle
+              React.createElement('div', {
+                className: `in-force-handle ${inForce === 0 ? 'current' : inForce === 1 ? 'all' : 'historic'}`
+              })
+            )
+          ),
+
+          React.createElement('div', { className: 'menu-spacer' }),
+          // Show stop button when streaming, send button otherwise
+          isStreaming ? React.createElement('button', {
+            type: 'button',
+            onClick: onStopGeneration,
+            className: 'send-button', // Use same styling as send button
+            title: 'Stop generating (Esc)'
+          }, React.createElement('i', { className: 'fas fa-stop' })) : React.createElement('button', {
+            type: 'submit',
+            onClick: handleSubmit,
+            disabled: !message.trim() || disabled,
+            className: 'send-button',
+            title: 'Send message (Enter)'
+          }, React.createElement('svg', {
+            xmlns: 'http://www.w3.org/2000/svg',
+            width: '20',
+            height: '20',
+            viewBox: '0 0 24 24',
+            fill: 'none',
+            stroke: 'currentColor',
+            strokeWidth: '2',
+            strokeLinecap: 'round',
+            strokeLinejoin: 'round'
+          }, React.createElement('path', { d: 'M12 19V5M5 12l7-7 7 7' })))
+        )
+      )
+    ),
+    React.createElement('div', {
+      className: 'chat-input-help-text'
+    }, 'Enter to send • Shift+Enter for new line • Esc to stop • This AI does not replace professional legal advice.')
+  );
+};
+
+// Export to window
+window.ChatInput = ChatInput;

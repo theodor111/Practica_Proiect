@@ -1,0 +1,886 @@
+/**
+ * API Service
+ * Handles all API calls to the backend (chat, documents, subscriptions)
+ * Requires: auth.js to be loaded first (for SecureTokenStorage, SessionExpiredEvent, fetchWithTimeout)
+ */
+
+// ============ RETRY UTILITY ============
+
+/**
+ * Fetch with exponential backoff retry
+ * @param {string} url - URL to fetch
+ * @param {object} options - Fetch options
+ * @param {object} retryConfig - Retry configuration
+ * @returns {Promise<Response>}
+ */
+async function fetchWithRetry(url, options = {}, retryConfig = {}) {
+  const {
+    maxRetries = 3,
+    baseDelay = 1000,
+    timeoutMs = 30000,
+    backoffMultiplier = 2,
+    maxDelay = 32000
+  } = retryConfig;
+
+  let lastError;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      // Use fetchWithTimeout from auth.js (exposed on window)
+      if (!window.fetchWithTimeout) {
+        throw new Error('fetchWithTimeout not available - ensure auth.js is loaded first');
+      }
+      return await window.fetchWithTimeout(url, options, timeoutMs);
+    } catch (error) {
+      lastError = error;
+
+      // Don't retry if the request was intentionally aborted
+      if (error.name === 'AbortError') throw error;
+
+      if (attempt < maxRetries) {
+        const delay = Math.min(baseDelay * Math.pow(backoffMultiplier, attempt), maxDelay);
+        console.log(`Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms:`, error.message);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+// ============ API SERVICE ============
+
+/**
+ * API Service Class
+ * Handles all backend API interactions
+ */
+class ApiService {
+  /**
+   * Check response status and handle 401 session expiration
+   * @param {Response} response - Fetch response
+   * @param {string} errorMessage - Error message for non-401 failures
+   */
+  async _checkResponse(response, fallbackMessage) {
+    if (!response.ok) {
+      if (response.status === 401) {
+        if (window.SessionExpiredEvent) {
+          window.dispatchEvent(new window.SessionExpiredEvent());
+        }
+        throw new Error('Session expired - please log in again');
+      }
+      // Try to extract specific error message from response body
+      let message = fallbackMessage;
+      try {
+        const body = await response.json();
+        const raw = body.error || body.message;
+        if (typeof raw === 'string') {
+          message = raw;
+        } else if (raw && typeof raw === 'object') {
+          message = raw.message || raw.detail || JSON.stringify(raw);
+        }
+      } catch (_) {
+        // Response body not JSON, use fallback
+      }
+      throw new Error(message);
+    }
+  }
+
+  /**
+   * Get authentication headers for API requests
+   * @returns {object} Headers with authorization token
+   */
+  getAuthHeaders() {
+    if (!window.SecureTokenStorage) {
+      throw new Error('SecureTokenStorage not available - ensure auth.js is loaded first');
+    }
+    const idToken = window.SecureTokenStorage.getToken('idToken');
+    return {
+      'Authorization': 'Bearer ' + idToken,
+      'Content-Type': 'application/json'
+    };
+  }
+
+  /**
+   * Send a chat message to the AI
+   * @param {string} message - User message
+   * @param {string|null} sessionId - Session ID (null for new session)
+   * @param {Array} files - Attached files (each must have itemId from Document Library)
+   * @param {object|null} filters - Jurisdiction, year, and other filters
+   * @returns {Promise<Response>} Streaming response
+   */
+  async sendMessage(message, sessionId = null, files = [], filters = null, { signal } = {}) {
+    // Normalize files to array for backward compatibility
+    const filesArray = Array.isArray(files) ? files : (files ? [files] : []);
+    console.log('ApiService.sendMessage called:', { message, sessionId, fileCount: filesArray.length, filters });
+
+    const requestBody = {
+      inputText: message.trim(),
+      sessionId: sessionId,
+      temperature: 0.7,
+      maxTokens: 4096
+    };
+
+    // Add filters if present (jurisdiction, documentFamily, yearRange, caseLaw)
+    if (filters && (filters.jurisdiction?.length > 0 || filters.documentFamily?.length > 0 || filters.yearRange || filters.caseLaw)) {
+      requestBody.filters = filters;
+      console.log('Adding filters to request:', filters);
+    }
+
+    // Add document references if present (itemId only — all files must already be in Document Library)
+    if (filesArray.length > 0) {
+      requestBody.documents = filesArray.map(file => ({ itemId: file.itemId }));
+    }
+
+    console.log('Request body:', { ...requestBody, documents: requestBody.documents ? `${requestBody.documents.length} documents` : 'none' });
+    console.log('Endpoint:', '/chat');
+
+    const headers = this.getAuthHeaders();
+    console.log('Auth headers:', headers);
+
+    // No retries — chat POST is not idempotent (creates session, counts usage)
+    try {
+      const response = await fetchWithRetry('/api/chat', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(requestBody),
+        signal: signal
+      }, {
+        maxRetries: 0,
+        timeoutMs: 120000 // Streaming can take longer
+      });
+
+      console.log('Response status:', response.status);
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+
+      await this._checkResponse(response, 'Chat request failed');
+
+      console.log('API call successful, returning response');
+      return response;
+    } catch (error) {
+      console.error('sendMessage error:', error);
+      throw error;
+    }
+  }
+
+  async translatePassage(text, targetLanguage) {
+    const response = await fetchWithRetry('/api/chat', {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ action: 'translatePassage', text, targetLanguage })
+    }, { maxRetries: 1, timeoutMs: 20000 });
+
+    await this._checkResponse(response, 'translatePassage failed');
+    const data = await response.json();
+    if (data.error) throw new Error(data.error);
+    return data;
+  }
+
+  /**
+   * Convert file to base64 string
+   * @param {File} file - File object
+   * @returns {Promise<string>} Base64 encoded file data
+   */
+  async fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+
+      // Add timeout for file reading
+      const readTimeout = setTimeout(() => {
+        reader.abort();
+        reject(new Error('File reading timeout'));
+      }, 30000); // 30 second timeout
+
+      reader.readAsDataURL(file);
+      reader.onload = () => {
+        clearTimeout(readTimeout);
+        const base64 = reader.result.split(',')[1]; // Remove data:mime;base64, prefix
+        resolve(base64);
+      };
+      reader.onerror = (error) => {
+        clearTimeout(readTimeout);
+        reject(error);
+      };
+    });
+  }
+
+  /**
+   * Get MIME type from file extension
+   * @param {string} extension - File extension
+   * @returns {string} MIME type
+   */
+  getMimeType(extension) {
+    const mimeMap = {
+      'pdf': 'application/pdf',
+      'doc': 'application/msword',
+      'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'txt': 'text/plain',
+      'html': 'text/html',
+      'md': 'text/markdown',
+      'rtf': 'application/rtf'
+    };
+    return mimeMap[extension] || 'application/octet-stream';
+  }
+
+  /**
+   * Get chat history for current user
+   * @returns {Promise<Array>} List of chat sessions
+   */
+  async getChatHistory() {
+    try {
+      const response = await fetchWithRetry('/api/chat/session', {
+        method: 'GET',
+        headers: this.getAuthHeaders()
+      }, {
+        maxRetries: 3,
+        timeoutMs: 30000,
+        baseDelay: 500
+      });
+
+      await this._checkResponse(response, 'Failed to fetch history');
+      return await response.json();
+    } catch (error) {
+      console.error('getChatHistory error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get specific chat session by ID
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<object>} Chat session with messages
+   */
+  async getSpecificChat(sessionId) {
+    try {
+      const response = await fetchWithRetry(`/api/chat/session/${sessionId}`, {
+        method: 'GET',
+        headers: this.getAuthHeaders()
+      }, {
+        maxRetries: 3,
+        timeoutMs: 30000,
+        baseDelay: 500
+      });
+
+      await this._checkResponse(response, 'Failed to fetch chat messages');
+      return await response.json();
+    } catch (error) {
+      console.error('getSpecificChat error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Rename a chat session
+   * @param {string} sessionId - Session ID
+   * @param {string} newTitle - New title
+   * @returns {Promise<object>} Updated session
+   */
+  async renameChat(sessionId, newTitle) {
+    try {
+      const response = await fetchWithRetry(`/api/chat/session/${sessionId}/rename`, {
+        method: 'PUT',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({
+          title: newTitle
+        })
+      }, {
+        maxRetries: 2,
+        timeoutMs: 15000,
+        baseDelay: 500
+      });
+
+      await this._checkResponse(response, 'Failed to rename chat');
+      return await response.json();
+    } catch (error) {
+      console.error('renameChat error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a chat session
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<object>} Deletion result
+   */
+  async deleteChat(sessionId) {
+    try {
+      const response = await fetchWithRetry(`/api/chat/session/${sessionId}`, {
+        method: 'DELETE',
+        headers: this.getAuthHeaders()
+      }, {
+        maxRetries: 2,
+        timeoutMs: 15000,
+        baseDelay: 500
+      });
+
+      await this._checkResponse(response, 'Failed to delete chat');
+      return await response.json();
+    } catch (error) {
+      console.error('deleteChat error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Save AI response to document library as .md
+   * @param {string} markdownText - AI response in markdown
+   * @param {Array} citations - Source citations
+   * @param {string} userQuestion - Original user question
+   * @param {number} responseNumber - Response number in conversation
+   * @returns {Promise<object>} Saved document info
+   */
+  async saveAIResponseToLibrary(markdownText, citations = [], userQuestion = '', responseNumber = 1) {
+    try {
+      // Generate markdown content
+      let markdownContent;
+      if (window.generateMarkdownContent) {
+        markdownContent = window.generateMarkdownContent(markdownText, citations, userQuestion);
+      } else {
+        // Fallback: simple markdown with header and response
+        console.log('generateMarkdownContent not available, using fallback');
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('en-GB', {
+          day: '2-digit',
+          month: 'long',
+          year: 'numeric'
+        });
+        markdownContent = `# eulaw.ai Legal Analysis\n\n*Generated: ${dateStr}*\n\n`;
+        if (userQuestion) {
+          markdownContent += `## Question\n\n${userQuestion}\n\n---\n\n`;
+        }
+        markdownContent += `## Response\n\n${markdownText}\n\n`;
+        markdownContent += `---\n\n*This document was generated by eulaw.ai.*\n`;
+      }
+
+      // Convert markdown string to base64
+      const base64Data = btoa(unescape(encodeURIComponent(markdownContent)));
+
+      // Generate filename
+      const now = new Date();
+      const timestamp = now.toISOString().replace(/[:.]/g, '-').split('T').join('_').slice(0, -5);
+      const questionPreview = userQuestion
+        ? userQuestion.replace(/[^a-zA-Z0-9\s]/g, '').trim().split(/\s+/).slice(0, 5).join('_')
+        : 'AI_Response';
+      const filename = `${questionPreview}_${timestamp}_R${responseNumber}.md`;
+
+      // Send to Document Library API (no retries — POST is not idempotent)
+      const response = await fetchWithRetry('/api/library/files', {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({
+          name: filename,
+          data: base64Data,
+          mimeType: 'text/markdown'
+        })
+      }, {
+        maxRetries: 0,
+        timeoutMs: 30000
+      });
+
+      await this._checkResponse(response, 'Failed to save document to library');
+
+      const result = await response.json();
+      return result.data;
+    } catch (error) {
+      console.error('saveAIResponseToLibrary error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Save a generated document artifact to the document library.
+   * Uploads the raw Markdown as `{sanitized title}.md` with no template wrapping —
+   * artifacts are already structured documents.
+   * @param {string} title - Artifact title (becomes filename)
+   * @param {string} content - Raw Markdown content
+   * @param {string} [documentType] - Unused for now; reserved for future tagging
+   * @returns {Promise<object>} Saved document info
+   */
+  async saveArtifactToLibrary(title, content, documentType) {
+    if (!title || !content) {
+      throw new Error('title and content are required');
+    }
+
+    // Sanitize title into a filename. Unicode-aware per .claude/rules/unicode-validation.md —
+    // keeps European characters (æ, ø, ü, é) and digits; strips punctuation/path separators.
+    const cleaned = title
+      .replace(/[^\p{L}\p{N}_ \-()]+/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 200);
+    const filename = (cleaned || 'Generated_Document') + '.md';
+
+    const base64Data = btoa(unescape(encodeURIComponent(content)));
+
+    const response = await fetchWithRetry('/api/library/files', {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({
+        name: filename,
+        data: base64Data,
+        mimeType: 'text/markdown'
+      })
+    }, {
+      maxRetries: 0,
+      timeoutMs: 30000
+    });
+
+    await this._checkResponse(response, 'Failed to save artifact to library');
+
+    const result = await response.json();
+    return result.data;
+  }
+
+  /**
+   * Upload a file directly to the document library
+   * @param {File} file - File object to upload
+   * @param {string|null} parentId - Target folder ID (null for root)
+   * @returns {Promise<object>} Saved document info
+   */
+  async uploadFileToLibrary(file, parentId = null) {
+    try {
+      // Convert file to base64
+      const base64Data = await this.fileToBase64(file);
+
+      // Determine MIME type from file object or extension
+      const extension = file.name.split('.').pop().toLowerCase();
+      const mimeType = file.type || this.getMimeType(extension);
+
+      const body = {
+        name: file.name,
+        data: base64Data,
+        mimeType: mimeType
+      };
+      if (parentId) {
+        body.parentId = parentId;
+      }
+
+      // Send to Document Library API (no retries — POST is not idempotent)
+      const response = await fetchWithRetry('/api/library/files', {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(body)
+      }, {
+        maxRetries: 0,
+        timeoutMs: 30000
+      });
+
+      await this._checkResponse(response, 'Failed to upload document to library');
+
+      const result = await response.json();
+      return result.data;
+    } catch (error) {
+      console.error('uploadFileToLibrary error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get folder contents from the document library
+   * @param {string} folderId - Folder ID ('root' for root level)
+   * @returns {Promise<object>} Folder data with items array
+   */
+  async getDocumentLibrary(folderId = 'root') {
+    try {
+      const response = await fetchWithRetry(`/api/library/folders/${folderId}`, {
+        method: 'GET',
+        headers: this.getAuthHeaders()
+      }, {
+        maxRetries: 3,
+        timeoutMs: 30000,
+        baseDelay: 500
+      });
+
+      await this._checkResponse(response, 'Failed to fetch document library');
+
+      const result = await response.json();
+      return result.data;
+    } catch (error) {
+      console.error('getDocumentLibrary error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Rename a document in the library
+   * @param {string} itemId - Document item ID
+   * @param {string} newName - New document name
+   * @returns {Promise<object>} Updated document
+   */
+  async renameLibraryDocument(itemId, newName) {
+    try {
+      const response = await fetchWithRetry(`/api/library/files/${itemId}`, {
+        method: 'PUT',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ name: newName })
+      }, {
+        maxRetries: 2,
+        timeoutMs: 15000,
+        baseDelay: 500
+      });
+
+      await this._checkResponse(response, 'Failed to rename document');
+
+      const result = await response.json();
+      return result.data;
+    } catch (error) {
+      console.error('renameLibraryDocument error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a document from the library
+   * @param {string} itemId - Document item ID
+   * @returns {Promise<void>}
+   */
+  async deleteLibraryDocument(itemId) {
+    try {
+      const response = await fetchWithRetry(`/api/library/files/${itemId}`, {
+        method: 'DELETE',
+        headers: this.getAuthHeaders()
+      }, {
+        maxRetries: 2,
+        timeoutMs: 15000,
+        baseDelay: 500
+      });
+
+      await this._checkResponse(response, 'Failed to delete document');
+    } catch (error) {
+      console.error('deleteLibraryDocument error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a folder in the document library
+   * @param {string} name - Folder name
+   * @param {string} parentId - Parent folder ID
+   * @returns {Promise<object>} Created folder data
+   */
+  async createFolder(name, parentId) {
+    try {
+      // No retries — POST is not idempotent
+      const response = await fetchWithRetry('/api/library/folders', {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ name, parentId })
+      }, {
+        maxRetries: 0,
+        timeoutMs: 15000
+      });
+
+      await this._checkResponse(response, 'Failed to create folder');
+
+      const result = await response.json();
+      return result.data;
+    } catch (error) {
+      console.error('createFolder error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Rename a folder in the document library
+   * @param {string} itemId - Folder item ID
+   * @param {string} newName - New folder name
+   * @returns {Promise<object>} Updated folder data
+   */
+  async renameFolder(itemId, newName) {
+    try {
+      const response = await fetchWithRetry(`/api/library/folders/${itemId}`, {
+        method: 'PUT',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ name: newName })
+      }, {
+        maxRetries: 2,
+        timeoutMs: 15000,
+        baseDelay: 500
+      });
+
+      await this._checkResponse(response, 'Failed to rename folder');
+
+      const result = await response.json();
+      return result.data;
+    } catch (error) {
+      console.error('renameFolder error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Move a folder to a new parent folder
+   * @param {string} itemId - Folder item ID
+   * @param {string} parentId - New parent folder ID
+   * @returns {Promise<object>} Updated folder data
+   */
+  async moveFolder(itemId, parentId) {
+    try {
+      const response = await fetchWithRetry(`/api/library/folders/${itemId}/move`, {
+        method: 'PUT',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ parentId })
+      }, {
+        maxRetries: 2,
+        timeoutMs: 15000,
+        baseDelay: 500
+      });
+
+      await this._checkResponse(response, 'Failed to move folder');
+
+      const result = await response.json();
+      return result.data;
+    } catch (error) {
+      console.error('moveFolder error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a folder from the document library
+   * @param {string} itemId - Folder item ID
+   * @param {boolean} recursive - Whether to delete contents recursively
+   * @returns {Promise<object>} Deletion result with counts
+   */
+  async deleteFolder(itemId, recursive = true) {
+    try {
+      // Recursive delete can be slow for large folder trees; longer timeout, fewer retries
+      const response = await fetchWithRetry(`/api/library/folders/${itemId}?recursive=${recursive}`, {
+        method: 'DELETE',
+        headers: this.getAuthHeaders()
+      }, {
+        maxRetries: 1,
+        timeoutMs: 60000,
+        baseDelay: 1000
+      });
+
+      await this._checkResponse(response, 'Failed to delete folder');
+
+      const result = await response.json();
+      return result.data;
+    } catch (error) {
+      console.error('deleteFolder error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Move a file to a new parent folder
+   * @param {string} itemId - File item ID
+   * @param {string} parentId - New parent folder ID
+   * @returns {Promise<object>} Updated file data
+   */
+  async moveFile(itemId, parentId) {
+    try {
+      const response = await fetchWithRetry(`/api/library/files/${itemId}/move`, {
+        method: 'PUT',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ parentId })
+      }, {
+        maxRetries: 2,
+        timeoutMs: 15000,
+        baseDelay: 500
+      });
+
+      await this._checkResponse(response, 'Failed to move file');
+
+      const result = await response.json();
+      return result.data;
+    } catch (error) {
+      console.error('moveFile error:', error);
+      throw error;
+    }
+  }
+
+  // ============ CHAT FOLDER METHODS ============
+
+  /**
+   * Get chat folder contents (folders + sessions) for a given folder
+   * @param {string} folderId - Folder ID ('root' for root level)
+   * @param {number} limit - Max items to return
+   * @returns {Promise<object>} { folder, items, nextToken }
+   */
+  async getChatFolderContents(folderId = 'root', limit = 500) {
+    try {
+      const response = await fetchWithRetry(`/api/chat/folders/${folderId}?limit=${limit}`, {
+        method: 'GET',
+        headers: this.getAuthHeaders()
+      }, {
+        maxRetries: 3,
+        timeoutMs: 30000,
+        baseDelay: 500
+      });
+
+      await this._checkResponse(response, 'Failed to fetch chat folder contents');
+      const data = await response.json();
+      // Normalize item IDs: chat API returns folderId/sessionId, not a unified itemId
+      data.items = (data.items || []).map(item => ({
+        ...item,
+        id: item.folderId || item.sessionId
+      }));
+      return data;
+    } catch (error) {
+      console.error('getChatFolderContents error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a chat folder
+   * @param {string} name - Folder name
+   * @param {string} parentId - Parent folder ID
+   * @returns {Promise<object>} Created folder
+   */
+  async createChatFolder(name, parentId) {
+    try {
+      const response = await fetchWithRetry('/api/chat/folders', {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ name, parentFolderId: parentId })
+      }, {
+        maxRetries: 0,
+        timeoutMs: 15000
+      });
+
+      await this._checkResponse(response, 'Failed to create chat folder');
+      return await response.json();
+    } catch (error) {
+      console.error('createChatFolder error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Rename a chat folder
+   * @param {string} folderId - Folder ID
+   * @param {string} name - New name
+   * @returns {Promise<object>} Updated folder
+   */
+  async renameChatFolder(folderId, name) {
+    try {
+      const response = await fetchWithRetry(`/api/chat/folders/${folderId}/rename`, {
+        method: 'PUT',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ name })
+      }, {
+        maxRetries: 2,
+        timeoutMs: 15000,
+        baseDelay: 500
+      });
+
+      await this._checkResponse(response, 'Failed to rename chat folder');
+      return await response.json();
+    } catch (error) {
+      console.error('renameChatFolder error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Move a chat folder to a new parent
+   * @param {string} folderId - Folder ID
+   * @param {string} parentId - New parent folder ID
+   * @returns {Promise<object>} Updated folder
+   */
+  async moveChatFolder(folderId, parentId) {
+    try {
+      const response = await fetchWithRetry(`/api/chat/folders/${folderId}/move`, {
+        method: 'PUT',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ parentFolderId: parentId })
+      }, {
+        maxRetries: 2,
+        timeoutMs: 15000,
+        baseDelay: 500
+      });
+
+      await this._checkResponse(response, 'Failed to move chat folder');
+      return await response.json();
+    } catch (error) {
+      console.error('moveChatFolder error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a chat folder and all its contents
+   * @param {string} folderId - Folder ID
+   * @returns {Promise<object>} Deletion result
+   */
+  async deleteChatFolder(folderId) {
+    try {
+      const response = await fetchWithRetry(`/api/chat/folders/${folderId}`, {
+        method: 'DELETE',
+        headers: this.getAuthHeaders()
+      }, {
+        maxRetries: 1,
+        timeoutMs: 60000,
+        baseDelay: 1000
+      });
+
+      await this._checkResponse(response, 'Failed to delete chat folder');
+      return await response.json();
+    } catch (error) {
+      console.error('deleteChatFolder error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Move a chat session to a new folder
+   * @param {string} sessionId - Session ID
+   * @param {string} parentId - New parent folder ID
+   * @returns {Promise<object>} Updated session
+   */
+  async moveChatSession(sessionId, parentId) {
+    try {
+      const response = await fetchWithRetry(`/api/chat/session/${sessionId}/move`, {
+        method: 'PUT',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ parentFolderId: parentId })
+      }, {
+        maxRetries: 2,
+        timeoutMs: 15000,
+        baseDelay: 500
+      });
+
+      await this._checkResponse(response, 'Failed to move chat session');
+      return await response.json();
+    } catch (error) {
+      console.error('moveChatSession error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get document counts per jurisdiction from OpenSearch
+   * Public endpoint — no auth required, CDN-cached for 24h
+   * @returns {Promise<Object>} e.g. { EU: 385235, DK: 396340, INTL: 4421 }
+   */
+  async getDocumentCounts() {
+    try {
+      const response = await fetchWithRetry('/api/serviceinfo/document-counts', {
+        method: 'GET',
+      }, {
+        maxRetries: 1,
+        timeoutMs: 15000,
+        baseDelay: 500
+      });
+
+      await this._checkResponse(response, 'Failed to fetch document counts');
+      return await response.json();
+    } catch (error) {
+      console.error('getDocumentCounts error:', error);
+      return null;
+    }
+  }
+}
+
+// Create singleton instance
+const apiService = new ApiService();
+
+// ============ EXPORTS ============
+
+// Expose to window for other components
+window.ApiService = ApiService;
+window.apiService = apiService;
+window.fetchWithRetry = fetchWithRetry;

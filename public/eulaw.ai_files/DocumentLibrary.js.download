@@ -1,0 +1,759 @@
+/**
+ * Document Library Component
+ * Tree view with folder management, file operations, drag-and-drop, and resizable panel.
+ * Inspired by VS Code's Explorer sidebar.
+ */
+
+const ROOT_FOLDER_ID = 'root';
+
+const DocumentLibrary = ({
+  treeData = {}, expandedFolders = new Set(), selectedItemId = null, loading = false,
+  onToggleFolder, onCreateFolder, onRenameFolder, onDeleteFolder, onMoveItem,
+  onDocumentSelect, onDocumentRename, onDocumentDelete, onRefresh, onUpload,
+  showMobile = false, onMobileClose
+}) => {
+  // Local state
+  const [editingId, setEditingId] = React.useState(null);
+  const [editName, setEditName] = React.useState('');
+  const [editIsFolder, setEditIsFolder] = React.useState(false);
+  const [editParentId, setEditParentId] = React.useState(null);
+  const [creatingFolderIn, setCreatingFolderIn] = React.useState(null);
+  const [newFolderName, setNewFolderName] = React.useState('');
+  const [deleteConfirmation, setDeleteConfirmation] = React.useState({
+    show: false, itemId: null, name: null, isFolder: false, parentId: null
+  });
+  const deleteConfirmationRef = React.useRef(deleteConfirmation);
+  React.useEffect(() => { deleteConfirmationRef.current = deleteConfirmation; }, [deleteConfirmation]);
+  const [isDraggingOver, setIsDraggingOver] = React.useState(false);
+  const [isUploading, setIsUploading] = React.useState(false);
+  const [dropTargetId, setDropTargetId] = React.useState(null);
+  const [draggingItem, setDraggingItem] = React.useState(null);
+
+  // Guard against double-save from Enter + Blur race condition
+  const savingRef = React.useRef(false);
+
+  // Resize state
+  const [panelWidth, setPanelWidth] = React.useState(() => {
+    const saved = localStorage.getItem('documentLibraryWidth');
+    return saved ? parseInt(saved, 10) : 260;
+  });
+  const [isResizing, setIsResizing] = React.useState(false);
+  const panelWidthRef = React.useRef(panelWidth);
+  const panelRef = React.useRef(null);
+  const fileInputRef = React.useRef(null);
+  const dragCounterRef = React.useRef(0);
+  const newFolderInputRef = React.useRef(null);
+
+  const ALLOWED_FORMATS = ['pdf', 'doc', 'docx', 'txt', 'html', 'md', 'rtf'];
+  const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+
+  // --- Resize handlers (mirrors SourcePanel pattern) ---
+  const handleResizeStart = React.useCallback((e) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  React.useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e) => {
+      if (panelRef.current) {
+        const panelLeft = panelRef.current.getBoundingClientRect().left;
+        const newWidth = e.clientX - panelLeft;
+        const maxWidth = window.innerWidth * 0.5;
+        const clampedWidth = Math.max(200, Math.min(maxWidth, newWidth));
+        // Update DOM directly during drag to avoid re-rendering the entire tree per pixel
+        panelRef.current.style.width = clampedWidth + 'px';
+        panelWidthRef.current = clampedWidth;
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      // Commit final width to state once on release
+      setPanelWidth(panelWidthRef.current);
+      localStorage.setItem('documentLibraryWidth', panelWidthRef.current.toString());
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
+
+  // --- File upload ---
+  const handleFileUpload = async (files, parentId = ROOT_FOLDER_ID) => {
+    if (!onUpload || files.length === 0) return;
+    setIsUploading(true);
+    try {
+      for (const file of files) {
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (!ALLOWED_FORMATS.includes(ext)) {
+          alert(`Cannot upload "${file.name}": .${ext} format is not supported. Allowed: ${ALLOWED_FORMATS.join(', ')}`);
+          continue;
+        }
+        if (file.size > MAX_FILE_SIZE) {
+          alert(`Cannot upload "${file.name}": file exceeds the 5 MB size limit.`);
+          continue;
+        }
+        await onUpload(file, parentId);
+      }
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // --- Panel-level drag-and-drop (external files from desktop) ---
+  const handlePanelDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+    dragCounterRef.current = 0;
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      handleFileUpload(files, ROOT_FOLDER_ID);
+    }
+  };
+
+  const handlePanelDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handlePanelDragEnter = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDraggingOver(true);
+    }
+  };
+
+  const handlePanelDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) {
+      setIsDraggingOver(false);
+    }
+  };
+
+  const handleFileInputChange = (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length > 0) {
+      handleFileUpload(files, ROOT_FOLDER_ID);
+    }
+    e.target.value = '';
+  };
+
+  // --- Helpers ---
+  const validateName = (name) => {
+    if (name.length > 255) return 'Name cannot exceed 255 characters';
+    if (!/^[\p{L}\p{N}_ \-()]+$/u.test(name)) return 'Folder name can only contain letters, digits, spaces, hyphens, underscores, and parentheses';
+    if (name === '.' || name === '..') return 'Invalid name';
+    return null;
+  };
+
+  const formatFileSize = (bytes) => {
+    if (!bytes) return '';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  const formatDate = (isoString) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  const getFileIconClass = (format) => {
+    if (format === 'pdf') return 'fas fa-file-pdf';
+    if (format === 'docx' || format === 'doc') return 'fas fa-file-word';
+    return 'fas fa-file-alt';
+  };
+
+  // Render VS Code-style vertical indent guide lines
+  const renderGuides = (depth) => {
+    if (depth === 0) return null;
+    return React.createElement('div', {
+      className: 'document-library-indent-guides',
+      'aria-hidden': 'true'
+    },
+      Array.from({ length: depth }, (_, i) =>
+        React.createElement('span', { key: i, className: 'document-library-indent-guide' })
+      )
+    );
+  };
+
+  // --- Rename ---
+  const startRename = (item, parentId) => {
+    setEditingId(item.itemId);
+    setEditName(item.name);
+    setEditIsFolder(item.type === 'folder');
+    setEditParentId(parentId);
+  };
+
+  const saveRename = async (itemId) => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    try {
+      const trimmed = editName.trim();
+      if (trimmed) {
+        const error = validateName(trimmed);
+        if (error) { cancelRename(); alert(error); return; }
+        if (editIsFolder && onRenameFolder) {
+          await onRenameFolder(itemId, trimmed, editParentId);
+        } else if (!editIsFolder && onDocumentRename) {
+          await onDocumentRename(itemId, trimmed, editParentId);
+        }
+      }
+      cancelRename();
+    } finally {
+      savingRef.current = false;
+    }
+  };
+
+  const cancelRename = () => {
+    setEditingId(null);
+    setEditName('');
+    setEditIsFolder(false);
+    setEditParentId(null);
+  };
+
+  // --- Create folder ---
+  const startCreateFolder = (parentId) => {
+    // Expand the parent folder if it's not root
+    if (parentId !== ROOT_FOLDER_ID && onToggleFolder && !expandedFolders.has(parentId)) {
+      onToggleFolder(parentId);
+    }
+    setCreatingFolderIn(parentId);
+    setNewFolderName('');
+  };
+
+  const saveNewFolder = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    try {
+      const trimmed = newFolderName.trim();
+      if (trimmed) {
+        const error = validateName(trimmed);
+        if (error) { setCreatingFolderIn(null); setNewFolderName(''); alert(error); return; }
+        if (onCreateFolder) await onCreateFolder(trimmed, creatingFolderIn);
+      }
+      setCreatingFolderIn(null);
+      setNewFolderName('');
+    } finally {
+      savingRef.current = false;
+    }
+  };
+
+  const cancelCreateFolder = () => {
+    setCreatingFolderIn(null);
+    setNewFolderName('');
+  };
+
+  // Focus the new folder input when it appears
+  React.useEffect(() => {
+    if (creatingFolderIn !== null && newFolderInputRef.current) {
+      newFolderInputRef.current.focus();
+    }
+  }, [creatingFolderIn]);
+
+  // --- Delete ---
+  const startDelete = (itemId, name, isFolder, parentId) => {
+    setDeleteConfirmation({ show: true, itemId, name, isFolder, parentId });
+  };
+
+  const cancelDelete = () => {
+    setDeleteConfirmation({ show: false, itemId: null, name: null, isFolder: false, parentId: null });
+  };
+
+  const confirmDelete = async () => {
+    const { itemId, isFolder, parentId } = deleteConfirmationRef.current;
+    if (itemId) {
+      if (isFolder && onDeleteFolder) {
+        await onDeleteFolder(itemId, parentId);
+      } else if (!isFolder && onDocumentDelete) {
+        await onDocumentDelete(itemId, parentId);
+      }
+    }
+    setDeleteConfirmation({ show: false, itemId: null, name: null, isFolder: false, parentId: null });
+  };
+
+  // Keyboard support for delete modal
+  React.useEffect(() => {
+    if (deleteConfirmation.show) {
+      const handleKeyDown = (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); confirmDelete(); }
+        else if (e.key === 'Escape') { e.preventDefault(); cancelDelete(); }
+      };
+      document.addEventListener('keydown', handleKeyDown);
+      setTimeout(() => {
+        const overlay = document.querySelector('.delete-confirmation-overlay');
+        if (overlay) overlay.focus();
+      }, 100);
+      return () => document.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [deleteConfirmation.show]);
+
+  // --- Drag-and-drop for moving items within the tree ---
+  const handleItemDragStart = (e, item, parentId) => {
+    // Set move data for library internal moves
+    e.dataTransfer.setData('application/x-library-move', JSON.stringify({
+      itemId: item.itemId,
+      type: item.type,
+      name: item.name,
+      parentId: parentId
+    }));
+
+    // Files also set chat drag data
+    if (item.type !== 'folder') {
+      e.dataTransfer.setData('application/json', JSON.stringify({
+        type: 'library-document',
+        itemId: item.itemId,
+        name: item.name,
+        format: item.format,
+        size: item.size
+      }));
+    }
+
+    e.dataTransfer.effectAllowed = item.type === 'folder' ? 'move' : 'copyMove';
+    setDraggingItem({ itemId: item.itemId, type: item.type });
+  };
+
+  const handleItemDragEnd = () => {
+    setDraggingItem(null);
+    setDropTargetId(null);
+  };
+
+  // Check if targetId is a descendant of sourceId in the tree
+  const isDescendant = (sourceId, targetId, visited = new Set()) => {
+    if (sourceId === targetId) return true;
+    if (visited.has(sourceId)) return false;
+    visited.add(sourceId);
+    const sourceData = treeData[sourceId];
+    if (!sourceData?.items) return false;
+    for (const item of sourceData.items) {
+      if (item.type === 'folder') {
+        if (item.itemId === targetId) return true;
+        if (isDescendant(item.itemId, targetId, visited)) return true;
+      }
+    }
+    return false;
+  };
+
+  const handleFolderDragOver = (e, folderId) => {
+    const isLibraryMove = e.dataTransfer.types.includes('application/x-library-move');
+    const isExternalFile = e.dataTransfer.types.includes('Files');
+
+    if (isLibraryMove) {
+      // Don't allow dropping on self or descendants
+      if (draggingItem && draggingItem.itemId === folderId) return;
+      if (draggingItem && draggingItem.type === 'folder' && isDescendant(draggingItem.itemId, folderId)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      setDropTargetId(folderId);
+    } else if (isExternalFile && folderId !== ROOT_FOLDER_ID) {
+      // Accept external file drops on specific folders (root handled by panel)
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'copy';
+      setDropTargetId(folderId);
+    }
+  };
+
+  const handleFolderDragLeave = (e) => {
+    if (!dropTargetId) return;
+    // Only clear highlight if mouse actually left the row (not just moved between child elements)
+    if (e.currentTarget.contains(e.relatedTarget)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDropTargetId(null);
+  };
+
+  const handleFolderDrop = (e, targetFolderId) => {
+    // Handle library-internal moves
+    const moveDataStr = e.dataTransfer.getData('application/x-library-move');
+    if (moveDataStr) {
+      e.preventDefault();
+      e.stopPropagation();
+      setDropTargetId(null);
+
+      try {
+        const moveData = JSON.parse(moveDataStr);
+        if (moveData.parentId === targetFolderId) return;
+        if (moveData.type === 'folder' && isDescendant(moveData.itemId, targetFolderId)) return;
+        if (onMoveItem) {
+          onMoveItem(moveData.itemId, moveData.type, targetFolderId, moveData.parentId);
+        }
+      } catch (err) {
+        console.error('Failed to parse move data:', err);
+      }
+      return;
+    }
+
+    // Handle external file drops onto a specific folder
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0 && targetFolderId !== ROOT_FOLDER_ID) {
+      e.preventDefault();
+      e.stopPropagation();
+      setDropTargetId(null);
+      setIsDraggingOver(false);
+      dragCounterRef.current = 0;
+      handleFileUpload(files, targetFolderId);
+      return;
+    }
+
+    // Root drops or non-file drops bubble to panel handler
+    setDropTargetId(null);
+  };
+
+  // --- Recursive tree rendering ---
+  const renderItems = (parentId, depth) => {
+    const folderData = treeData[parentId];
+    const items = folderData?.items || [];
+    const isLoaded = folderData?.loaded;
+    const elements = [];
+
+    // New folder input at this level
+    if (creatingFolderIn === parentId) {
+      elements.push(
+        React.createElement('div', {
+          key: '__new-folder-' + parentId,
+          className: 'document-library-tree-item'
+        },
+          renderGuides(depth),
+          // Spacer matching chevron width so input aligns with folder names
+          React.createElement('span', { className: 'document-library-tree-chevron spacer' }),
+          React.createElement('input', {
+            ref: newFolderInputRef,
+            type: 'text',
+            className: 'document-library-rename-input',
+            value: newFolderName,
+            placeholder: 'Folder name',
+            onChange: (e) => setNewFolderName(e.target.value),
+            onKeyDown: (e) => {
+              if (e.key === 'Enter') saveNewFolder();
+              if (e.key === 'Escape') cancelCreateFolder();
+            },
+            onBlur: () => {
+              if (newFolderName.trim()) saveNewFolder();
+              else cancelCreateFolder();
+            },
+            onClick: (e) => e.stopPropagation()
+          })
+        )
+      );
+    }
+
+    if (!isLoaded && expandedFolders.has(parentId)) {
+      // Show spinner while loading
+      elements.push(
+        React.createElement('div', {
+          key: '__loading-' + parentId,
+          className: 'document-library-tree-loading'
+        },
+          renderGuides(depth),
+          React.createElement('i', { className: 'fas fa-spinner fa-spin' }),
+          ' Loading...'
+        )
+      );
+      return elements;
+    }
+
+    // Empty folders: no placeholder text, just the expanded chevron (VS Code style)
+
+    for (const item of items) {
+      const isFolder = item.type === 'folder';
+      const isExpanded = expandedFolders.has(item.itemId);
+      const isDragTarget = dropTargetId === item.itemId;
+      const isDragging = draggingItem?.itemId === item.itemId;
+
+      let className = 'document-library-tree-item';
+      if (selectedItemId === item.itemId) className += ' selected';
+      if (isDragTarget) className += ' drop-target';
+      if (isDragging) className += ' dragging';
+
+      if (isFolder) {
+        // --- Folder row (no folder icon, VS Code style) ---
+        elements.push(
+          React.createElement('div', {
+            key: item.itemId,
+            className: className,
+            draggable: true,
+            onDragStart: (e) => handleItemDragStart(e, item, parentId),
+            onDragEnd: handleItemDragEnd,
+            onDragOver: (e) => handleFolderDragOver(e, item.itemId),
+            onDragLeave: handleFolderDragLeave,
+            onDrop: (e) => handleFolderDrop(e, item.itemId),
+            onClick: () => onToggleFolder && onToggleFolder(item.itemId)
+          },
+            // Indent guides
+            renderGuides(depth),
+            // Chevron only (no folder icon)
+            React.createElement('span', {
+              className: 'document-library-tree-chevron'
+            }, React.createElement('i', {
+              className: isExpanded ? 'fas fa-chevron-down' : 'fas fa-chevron-right'
+            })),
+            // Name or rename input
+            editingId === item.itemId
+              ? React.createElement('input', {
+                  type: 'text',
+                  className: 'document-library-rename-input',
+                  value: editName,
+                  onChange: (e) => setEditName(e.target.value),
+                  onKeyDown: (e) => {
+                    if (e.key === 'Enter') saveRename(item.itemId);
+                    if (e.key === 'Escape') cancelRename();
+                  },
+                  onBlur: () => saveRename(item.itemId),
+                  autoFocus: true,
+                  onClick: (e) => e.stopPropagation()
+                })
+              : React.createElement('span', { className: 'document-library-tree-name' }, item.name),
+            // Actions
+            editingId !== item.itemId && React.createElement('div', {
+              className: 'document-library-tree-actions'
+            },
+              React.createElement('button', {
+                className: 'document-library-action-btn',
+                onClick: (e) => { e.stopPropagation(); startCreateFolder(item.itemId); },
+                title: 'New subfolder'
+              }, React.createElement('i', { className: 'fas fa-folder-plus' })),
+              React.createElement('button', {
+                className: 'document-library-action-btn',
+                onClick: (e) => { e.stopPropagation(); startRename(item, parentId); },
+                title: 'Rename'
+              }, React.createElement('i', { className: 'fas fa-pencil-alt' })),
+              React.createElement('button', {
+                className: 'document-library-action-btn delete',
+                onClick: (e) => { e.stopPropagation(); startDelete(item.itemId, item.name, true, parentId); },
+                title: 'Delete'
+              }, React.createElement('i', { className: 'fas fa-trash-alt' }))
+            )
+          )
+        );
+
+        // Render children if expanded
+        if (isExpanded) {
+          elements.push(...renderItems(item.itemId, depth + 1));
+        }
+      } else {
+        // --- File row (file icon in chevron position, VS Code style) ---
+        elements.push(
+          React.createElement('div', {
+            key: item.itemId,
+            className: className,
+            draggable: true,
+            onDragStart: (e) => handleItemDragStart(e, item, parentId),
+            onDragEnd: handleItemDragEnd,
+            onDragOver: (e) => {
+              // Only handle internal library moves; let external file drags bubble to panel
+              if (e.dataTransfer.types.includes('application/x-library-move')) {
+                handleFolderDragOver(e, parentId);
+              }
+            },
+            onDragLeave: (e) => {
+              if (e.dataTransfer.types.includes('application/x-library-move')) {
+                handleFolderDragLeave(e);
+              }
+            },
+            onDrop: (e) => {
+              if (e.dataTransfer.types.includes('application/x-library-move')) {
+                handleFolderDrop(e, parentId);
+              }
+            }
+          },
+            // Indent guides
+            renderGuides(depth),
+            // File icon (takes the chevron position, no spacer)
+            React.createElement('i', {
+              className: getFileIconClass(item.format) + ' document-library-tree-icon'
+            }),
+            // Name or rename input
+            editingId === item.itemId
+              ? React.createElement('input', {
+                  type: 'text',
+                  className: 'document-library-rename-input',
+                  value: editName,
+                  onChange: (e) => setEditName(e.target.value),
+                  onKeyDown: (e) => {
+                    if (e.key === 'Enter') saveRename(item.itemId);
+                    if (e.key === 'Escape') cancelRename();
+                  },
+                  onBlur: () => saveRename(item.itemId),
+                  autoFocus: true,
+                  onClick: (e) => e.stopPropagation()
+                })
+              : React.createElement('span', { className: 'document-library-tree-name' },
+                  item.name,
+                  item.size ? React.createElement('span', { className: 'document-library-tree-meta' },
+                    ' \u00B7 ' + formatFileSize(item.size)
+                  ) : null
+                ),
+            // Actions
+            editingId !== item.itemId && React.createElement('div', {
+              className: 'document-library-tree-actions'
+            },
+              React.createElement('button', {
+                className: 'document-library-action-btn',
+                onClick: (e) => { e.stopPropagation(); startRename(item, parentId); },
+                title: 'Rename'
+              }, React.createElement('i', { className: 'fas fa-pencil-alt' })),
+              React.createElement('button', {
+                className: 'document-library-action-btn',
+                onClick: (e) => { e.stopPropagation(); onDocumentSelect && onDocumentSelect(item); },
+                title: 'Add to chat'
+              }, React.createElement('i', { className: 'fas fa-plus' })),
+              React.createElement('button', {
+                className: 'document-library-action-btn delete',
+                onClick: (e) => { e.stopPropagation(); startDelete(item.itemId, item.name, false, parentId); },
+                title: 'Delete'
+              }, React.createElement('i', { className: 'fas fa-trash-alt' }))
+            )
+          )
+        );
+      }
+    }
+
+    return elements;
+  };
+
+  // --- Render ---
+  return React.createElement('div', {
+      ref: panelRef,
+      className: `document-library-panel ${isDraggingOver ? 'drag-over' : ''}`,
+      style: showMobile ? {} : { width: panelWidth + 'px' },
+      onDrop: handlePanelDrop,
+      onDragOver: handlePanelDragOver,
+      onDragEnter: handlePanelDragEnter,
+      onDragLeave: handlePanelDragLeave
+    },
+
+    // Mobile close button
+    showMobile && onMobileClose && React.createElement('button', {
+      className: 'mobile-close-button',
+      onClick: onMobileClose,
+      'aria-label': 'Close panel'
+    }, React.createElement('i', { className: 'fas fa-times' })),
+
+    // Resize handle (desktop only, on right edge)
+    !showMobile && React.createElement('div', {
+      className: 'document-library-resize-handle' + (isResizing ? ' resizing' : ''),
+      onMouseDown: handleResizeStart
+    }),
+
+    // Hidden file input
+    React.createElement('input', {
+      type: 'file',
+      ref: fileInputRef,
+      className: 'hidden-input',
+      accept: '.pdf,.doc,.docx,.txt,.html,.md,.rtf',
+      multiple: true,
+      onChange: handleFileInputChange
+    }),
+
+    // Header
+    React.createElement('div', {
+      className: 'document-library-header' + (dropTargetId === ROOT_FOLDER_ID ? ' drop-target' : ''),
+      onDragOver: (e) => handleFolderDragOver(e, ROOT_FOLDER_ID),
+      onDragLeave: handleFolderDragLeave,
+      onDrop: (e) => handleFolderDrop(e, ROOT_FOLDER_ID)
+    },
+      React.createElement('h3', null, 'My Documents'),
+      React.createElement('div', { className: 'document-library-header-actions' },
+        React.createElement('button', {
+          className: 'document-library-add-btn',
+          onClick: () => startCreateFolder(ROOT_FOLDER_ID),
+          title: 'New folder'
+        }, React.createElement('i', { className: 'fas fa-folder-plus' })),
+        React.createElement('button', {
+          className: 'document-library-add-btn',
+          onClick: () => fileInputRef.current && fileInputRef.current.click(),
+          title: 'Upload documents',
+          disabled: isUploading
+        }, React.createElement('i', { className: isUploading ? 'fas fa-spinner fa-spin' : 'fas fa-plus' }))
+      )
+    ),
+
+    // Drag overlay (external files from desktop)
+    isDraggingOver && React.createElement('div', { className: 'document-library-drop-overlay' },
+      React.createElement('div', { className: 'document-library-drop-content' },
+        React.createElement('i', { className: 'fas fa-cloud-upload-alt' }),
+        React.createElement('p', null, 'Drop files here')
+      )
+    ),
+
+    // Tree list
+    React.createElement('div', {
+      className: 'document-library-tree',
+      onDragOver: (e) => handleFolderDragOver(e, ROOT_FOLDER_ID),
+      onDragLeave: handleFolderDragLeave,
+      onDrop: (e) => handleFolderDrop(e, ROOT_FOLDER_ID)
+    },
+      loading
+        ? React.createElement('div', { className: 'document-library-loading' },
+            React.createElement('i', { className: 'fas fa-spinner fa-spin' }),
+            ' Loading...'
+          )
+        : (!treeData[ROOT_FOLDER_ID]?.loaded || (treeData[ROOT_FOLDER_ID]?.items?.length === 0 && creatingFolderIn === null))
+          ? React.createElement('div', { className: 'document-library-empty' },
+              React.createElement('i', { className: 'fas fa-folder-open' }),
+              React.createElement('p', null, 'No documents yet'),
+              React.createElement('p', { className: 'document-library-hint' },
+                'Upload files or create folders to get started'
+              )
+            )
+          : renderItems(ROOT_FOLDER_ID, 0)
+    ),
+
+    // Delete confirmation modal
+    deleteConfirmation.show && React.createElement('div', {
+      className: 'delete-confirmation-overlay',
+      onClick: cancelDelete,
+      tabIndex: 0
+    },
+      React.createElement('div', {
+        className: 'delete-confirmation-modal',
+        onClick: (e) => e.stopPropagation()
+      },
+        React.createElement('div', { className: 'delete-confirmation-header' },
+          React.createElement('h3', null, deleteConfirmation.isFolder ? 'Delete Folder' : 'Delete Document'),
+          React.createElement('button', {
+            className: 'delete-confirmation-close',
+            onClick: cancelDelete
+          }, '\u00D7')
+        ),
+        React.createElement('div', { className: 'delete-confirmation-content' },
+          React.createElement('p', null,
+            'Are you sure you want to delete ',
+            React.createElement('strong', null, deleteConfirmation.name || 'this item'),
+            '?',
+            deleteConfirmation.isFolder
+              ? ' All contents will be permanently deleted.'
+              : ' This action cannot be undone.'
+          )
+        ),
+        React.createElement('div', { className: 'delete-confirmation-actions' },
+          React.createElement('button', {
+            className: 'delete-confirmation-cancel',
+            onClick: cancelDelete
+          }, 'Cancel'),
+          React.createElement('button', {
+            className: 'delete-confirmation-confirm',
+            onClick: confirmDelete
+          }, 'Delete')
+        )
+      )
+    )
+  );
+};
+
+// Export to window
+window.DocumentLibrary = DocumentLibrary;

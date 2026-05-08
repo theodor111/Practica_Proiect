@@ -1,0 +1,1848 @@
+// Simplified React app for development environment - matching original design
+// React hooks accessed via React.useState, React.useEffect, etc.
+
+// ============ UTILITY FUNCTIONS ============
+// These utilities are defined later in this file OR loaded from separate files.
+// When loaded from separate files (utils/*.js, components/*.js), they are
+// exposed on window object. The local definitions serve as fallback.
+
+// Configuration - embedded in index.html for security
+let config = null;
+
+// ============ SERVICE IMPORTS ============
+// AuthService, ApiService, and related utilities are loaded from:
+// - services/auth.js (AuthService, SecureTokenStorage, session monitoring)
+// - services/api.js (ApiService, fetchWithRetry)
+
+// Load configuration from embedded window.EULAW_CONFIG
+async function loadConfiguration() {
+  try {
+    console.log('Loading embedded configuration');
+
+    // Get configuration from window object (set in index.html)
+    if (!window.EULAW_CONFIG) {
+      throw new Error('Configuration not found. Please refresh the page.');
+    }
+
+    const embeddedConfig = window.EULAW_CONFIG;
+    console.log('Configuration loaded successfully');
+
+    // Merge with app-specific config
+    config = {
+      ...embeddedConfig,
+      app: {
+        // No input length limit - let the model handle it
+      }
+    };
+
+    // Expose config on window for service files
+    window.config = config;
+
+    console.log('Configuration loaded for environment:', config.environment);
+    return config;
+  } catch (error) {
+    console.error('Failed to load configuration:', error);
+    throw new Error('Configuration unavailable. Please refresh the page.');
+  }
+}
+
+
+// AuthService now loaded from services/auth.js
+
+// ApiService now loaded from services/api.js
+
+// AuthContext and React.useAuth now loaded from services/auth.js
+
+// Error Boundary Component - prevents blank pages on crashes
+
+// Session Expired Modal Component
+
+// AuthProvider now loaded from services/auth.js
+
+// Typing Indicator Component
+
+// HTML escaping function - delegates to utility file (utils/markdown.js)
+// Chat Message Component (memoized to prevent unnecessary re-renders)
+
+// ============ EXTRACTED COMPONENTS ============
+// The following components have been extracted to separate files:
+//
+// Services Layer:
+// - AuthService, SecureTokenStorage, AuthContext, React.useAuth: services/auth.js
+// - ApiService, fetchWithRetry: services/api.js
+//
+// Utility Components:
+// - ErrorBoundary: components/Utilities.js
+// - SessionExpiredModal: components/Utilities.js
+// - TypingIndicator: components/Utilities.js
+// - ChatMessage: components/Utilities.js
+//
+// Navigation Components:
+// - NavIconBar: components/Navigation.js
+// - MobileNavigation: components/Navigation.js
+//
+// Main Components:
+// - ChatInput: components/ChatInput.js
+// - ChatHistory: components/ChatHistory.js
+// - ChatInterface: components/ChatInterface.js
+// - SourcePanel: components/SourcePanel.js
+// - UserProfile: components/UserProfile.js
+// - DocumentLibrary: components/DocumentLibrary.js
+//
+// Modal Components:
+// - SubscriptionOverlay: components/SubscriptionOverlay.js
+// - PrivacyPolicyModal: components/PrivacyPolicyModal.js
+// - LicenseAgreementModal: components/LicenseAgreementModal.js
+// - TermsOfServiceModal: components/TermsOfServiceModal.js
+
+// Subscription Overlay Component - Minimalist Design
+
+// License Agreement Modal Component
+
+// Mobile Navigation Component (shows different buttons based on device)
+
+// Navigation Icon Bar Component (slim left sidebar)
+
+// Main App Component
+function MainApp() {
+  const { user, isAuthenticated, loading, logout } = window.useAuth();
+  const [currentSessionId, setCurrentSessionId] = React.useState(null);
+  const [currentSources, setCurrentSources] = React.useState([]); // Array of { responseNumber, sources: [] }
+  const [currentCitations, setCurrentCitations] = React.useState([]);
+  const [currentArtifacts, setCurrentArtifacts] = React.useState([]); // Array of { responseNumber, artifacts: [] }
+  const [sourcePanelTab, setSourcePanelTab] = React.useState('sources'); // 'sources' | 'artifacts'
+  const [queryLanguage, setQueryLanguage] = React.useState(null); // Detected language from chat pipeline
+  const [responseCounter, setResponseCounter] = React.useState(0);
+  const [showUserProfile, setShowUserProfile] = React.useState(false);
+  const [configLoaded, setConfigLoaded] = React.useState(false);
+  const [subscriptionStatus, setSubscriptionStatus] = React.useState(null);
+  const [statusLoading, setStatusLoading] = React.useState(true);
+  const [showSubscriptionOverlay, setShowSubscriptionOverlay] = React.useState(false);
+  const [showLicenseAgreement, setShowLicenseAgreement] = React.useState(false);
+  const [agreementAccepted, setAgreementAccepted] = React.useState(false);
+  const [isCreatingCheckout, setIsCreatingCheckout] = React.useState(false);
+  const [isStreaming, setIsStreaming] = React.useState(false);
+  const [sessionExpired, setSessionExpired] = React.useState(false);
+  
+  // Free Tier State
+  const [freeTierStatus, setFreeTierStatus] = React.useState(null);
+
+  // Legal document overlay states
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = React.useState(false);
+  const [showTermsOfService, setShowTermsOfService] = React.useState(false);
+  
+  // Mobile navigation state
+  const [showMobileSidebar, setShowMobileSidebar] = React.useState(false);
+  const [showMobileSources, setShowMobileSources] = React.useState(false);
+  const [showMobileNavBar, setShowMobileNavBar] = React.useState(false);
+  const [showMobileDocuments, setShowMobileDocuments] = React.useState(false);
+
+  // Historic filter state: 0 = current only, 1 = all, 2 = historical only (persisted in localStorage)
+  const [inForceFilter, setInForceFilter] = React.useState(() => {
+    try { const v = parseInt(localStorage.getItem('inForceFilter'), 10); return [0, 1, 2].includes(v) ? v : 0; } catch { return 0; }
+  });
+
+  // Desktop chat history panel visibility (persisted in localStorage)
+  const [showChatHistoryPanel, setShowChatHistoryPanel] = React.useState(() => {
+    try { return localStorage.getItem('leftPanelTab') === 'history'; } catch { return false; }
+  });
+
+  // Document library panel visibility (persisted in localStorage)
+  const [showDocumentLibraryPanel, setShowDocumentLibraryPanel] = React.useState(() => {
+    try { return localStorage.getItem('leftPanelTab') === 'documents'; } catch { return false; }
+  });
+
+  // Sources panel visibility (persisted in localStorage)
+  const [showSourcesPanel, setShowSourcesPanel] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem('sourcesPanelOpen')) === true; } catch { return false; }
+  });
+
+  // User's document library (tree state)
+  const [treeData, setTreeData] = React.useState({}); // { [folderId]: { items: [], loaded: true } }
+  const [expandedFolders, setExpandedFolders] = React.useState(new Set());
+  const [selectedItemId, setSelectedItemId] = React.useState(null);
+  const [documentsLoading, setDocumentsLoading] = React.useState(false);
+  const [attachLibraryDocumentFn, setAttachLibraryDocumentFn] = React.useState(null);
+
+  // Chat folder tree state (mirrors document library pattern)
+  const [chatTreeData, setChatTreeData] = React.useState({});
+  const [chatExpandedFolders, setChatExpandedFolders] = React.useState(new Set());
+  const [chatFoldersLoading, setChatFoldersLoading] = React.useState(() => showChatHistoryPanel && true);
+
+  // Source panel expand state (for inline citation clicks)
+  const [expandSourceKey, setExpandSourceKey] = React.useState(null);
+
+  // Theme state (light/dark mode)
+  const [theme, setTheme] = React.useState(() => {
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark' || savedTheme === 'light') {
+      return savedTheme;
+    }
+    return 'dark'; // Default to dark mode
+  });
+
+  // Tutorial state (0 = hidden, 1-7 = different steps)
+  const [tutorialStep, setTutorialStep] = React.useState(0);
+  const [tutorialPositions, setTutorialPositions] = React.useState({});
+
+  // Ref to track response counter immediately (avoids React state batching issues)
+  const responseCounterRef = React.useRef(0);
+
+  // Apply theme on mount and when it changes
+  React.useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  // Load document library on mount if panel was open (restored from localStorage)
+  // Gated on isAuthenticated to prevent 401 race during OAuth callback
+  React.useEffect(() => {
+    if (isAuthenticated && showDocumentLibraryPanel) {
+      // Defer to allow loadDocumentLibrary to be defined
+      const timer = setTimeout(async () => {
+        try {
+          const folderData = await apiService.getDocumentLibrary('root');
+          setTreeData(prev => ({ ...prev, root: { items: folderData.items || folderData, loaded: true } }));
+        } catch (err) {
+          console.warn('Failed to load document library on mount:', err.message);
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isAuthenticated]);
+
+  // Load chat tree on mount if panel was open (restored from localStorage)
+  // Gated on isAuthenticated to prevent 401 race during OAuth callback
+  React.useEffect(() => {
+    if (isAuthenticated && showChatHistoryPanel && !chatTreeData['root']?.loaded) {
+      const timer = setTimeout(async () => {
+        setChatFoldersLoading(true);
+        try {
+          const data = await apiService.getChatFolderContents('root');
+          setChatTreeData(prev => ({ ...prev, root: { items: data.items || [], loaded: true } }));
+        } catch (err) {
+          console.warn('Failed to load chat tree on mount:', err.message);
+        } finally {
+          setChatFoldersLoading(false);
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isAuthenticated]);
+
+  // Theme toggle handler (light <-> dark)
+  const handleThemeToggle = () => {
+    setTheme(prev => prev === 'light' ? 'dark' : 'light');
+  };
+
+  // Tutorial handler - cycles through steps or closes
+  const handleTutorialClick = () => {
+    setTutorialStep(prev => {
+      if (prev === 7) return 0; // Close after last step
+      return prev + 1; // Go to next step
+    });
+  };
+
+  // Calculate tutorial bubble positions based on target elements
+  React.useEffect(() => {
+    if (tutorialStep === 0) return;
+
+    const calculatePositions = () => {
+      const positions = {};
+
+      // Step 1: New Chat button (first nav icon button)
+      const newChatBtn = document.querySelector('.nav-icon-btn');
+      if (newChatBtn) {
+        const rect = newChatBtn.getBoundingClientRect();
+        positions.step1 = { left: rect.right + 10, top: rect.top };
+      }
+
+      // Step 2: Chat History (second nav icon button)
+      const navButtons = document.querySelectorAll('.nav-icon-btn');
+      if (navButtons[1]) {
+        const rect = navButtons[1].getBoundingClientRect();
+        positions.step2 = { left: rect.right + 10, top: rect.top };
+      }
+
+      // Step 3: My Documents (third nav icon button)
+      if (navButtons[2]) {
+        const rect = navButtons[2].getBoundingClientRect();
+        positions.step3 = { left: rect.right + 10, top: rect.top };
+      }
+
+      // Step 4: Sources & Citations (fourth nav icon button)
+      if (navButtons[3]) {
+        const rect = navButtons[3].getBoundingClientRect();
+        positions.step4 = { left: rect.right + 10, top: rect.top };
+      }
+
+      // Step 5: Jurisdiction filter (flags)
+      const jurisdictionFlags = document.querySelector('.jurisdiction-flags-container');
+      if (jurisdictionFlags) {
+        const rect = jurisdictionFlags.getBoundingClientRect();
+        positions.step5 = { left: rect.left + (rect.width / 2) - 175, bottom: window.innerHeight - rect.top + 10 };
+      }
+
+      // Step 6: In-force/historic filter
+      const inForceTrack = document.querySelector('.in-force-track');
+      if (inForceTrack) {
+        const rect = inForceTrack.getBoundingClientRect();
+        positions.step6 = { left: rect.left + (rect.width / 2) - 150, bottom: window.innerHeight - rect.top + 10 };
+      }
+
+      // Step 7: Send button
+      const sendBtn = document.querySelector('.send-button');
+      if (sendBtn) {
+        const rect = sendBtn.getBoundingClientRect();
+        positions.step7 = { right: window.innerWidth - rect.right + 10, bottom: window.innerHeight - rect.top + 10 };
+      }
+
+      setTutorialPositions(positions);
+    };
+
+    calculatePositions();
+    window.addEventListener('resize', calculatePositions);
+    return () => window.removeEventListener('resize', calculatePositions);
+  }, [tutorialStep]);
+
+  // Load configuration on app start
+  React.useEffect(() => {
+    loadConfiguration()
+      .then(() => {
+        setConfigLoaded(true);
+      })
+      .catch((error) => {
+        console.error('Configuration load failed:', error);
+        // Even on error, mark config as loaded to prevent infinite hang
+        setConfigLoaded(true);
+      });
+  }, []);
+
+  // Handle session expiration event
+  React.useEffect(() => {
+    const handleSessionExpired = () => {
+      console.log('Session expired event received');
+      setSessionExpired(true);
+    };
+
+    window.addEventListener('sessionExpired', handleSessionExpired);
+    return () => window.removeEventListener('sessionExpired', handleSessionExpired);
+  }, []);
+
+  // Handle inline citation clicks to expand corresponding source in panel
+  React.useEffect(() => {
+    const handleCitationClick = (e) => {
+      const citation = e.target.closest('.inline-citation');
+      if (!citation) return;
+
+      const sourceIndex = parseInt(citation.dataset.sourceIndex, 10);
+      if (isNaN(sourceIndex)) return;
+
+      // Find the response number from the parent AI message wrapper
+      const messageWrapper = citation.closest('.ai-message-wrapper');
+      const responseNumber = messageWrapper ? parseInt(messageWrapper.dataset.responseNumber, 10) : null;
+
+      // Open the appropriate panel: mobile fullscreen on ≤768px, side panel on desktop
+      const isMobile = window.matchMedia('(max-width: 768px)').matches;
+      if (isMobile) {
+        setShowMobileSources(true);
+        setShowMobileNavBar(false);
+        setShowMobileSidebar(false);
+        setShowMobileDocuments(false);
+      } else {
+        setShowSourcesPanel(true);
+        localStorage.setItem('sourcesPanelOpen', 'true');
+      }
+
+      // Always switch to the Sources tab when a [n] citation is clicked —
+      // even if the user was already looking at the Documents tab.
+      setSourcePanelTab('sources');
+
+      if (responseNumber && !isNaN(responseNumber)) {
+        // Find the matching response group
+        const matchingGroup = currentSources.find(g => g.responseNumber === responseNumber);
+        if (matchingGroup && sourceIndex < matchingGroup.sources.length) {
+          const sourceKey = `response-${responseNumber}-source-${sourceIndex}`;
+          setExpandSourceKey(sourceKey);
+        }
+      } else {
+        // Fallback: use the most recent response group (for legacy messages without responseNumber)
+        const lastGroupWithSources = currentSources.filter(g => g.sources && g.sources.length > 0).slice(-1)[0];
+        if (lastGroupWithSources && sourceIndex < lastGroupWithSources.sources.length) {
+          const sourceKey = `response-${lastGroupWithSources.responseNumber}-source-${sourceIndex}`;
+          setExpandSourceKey(sourceKey);
+        }
+      }
+    };
+
+    document.addEventListener('click', handleCitationClick);
+    return () => document.removeEventListener('click', handleCitationClick);
+  }, [currentSources]);
+
+  // Check agreement and subscription status when authenticated
+  React.useEffect(() => {
+    const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+    if (isLocalDev) {
+      // Skip subscription check in local dev mode
+      console.log('Local dev mode: skipping subscription check');
+      setStatusLoading(false);
+      setSubscriptionStatus({ isActive: true, plan: 'local-dev' });
+    } else if (isAuthenticated && configLoaded) {
+      checkUserStatus();
+    }
+  }, [isAuthenticated, configLoaded]);
+
+  // Reset checkout loading state when user navigates back from Stripe via browser back button
+  React.useEffect(() => {
+    const handlePageShow = (event) => {
+      if (event.persisted) {
+        setIsCreatingCheckout(false);
+      }
+    };
+    window.addEventListener('pageshow', handlePageShow);
+    return () => window.removeEventListener('pageshow', handlePageShow);
+  }, []);
+
+  // Helper function to redirect to Stripe checkout
+  const redirectToCheckout = async (accessToken, user, priceId = null) => {
+    try {
+      // Store authentication state before Stripe redirect
+      const authState = {
+        accessToken: SecureTokenStorage.getToken('accessToken'),
+        refreshToken: SecureTokenStorage.getToken('refreshToken'),
+        idToken: SecureTokenStorage.getToken('idToken'),
+        userId: localStorage.getItem('userId'),
+        userEmail: user.email,
+        userName: user.name || user.username,
+        timestamp: Date.now()
+      };
+
+      // Store in sessionStorage (survives redirects better than localStorage in some browsers)
+      sessionStorage.setItem('preStripeAuthState', JSON.stringify(authState));
+      console.log('Stored authentication state before Stripe redirect:', authState);
+
+      const idToken = SecureTokenStorage.getToken('idToken');
+      const checkoutResponse = await fetchWithTimeout('/api/stripe-checkout', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${idToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          userId: localStorage.getItem('userId'),
+          email: user.email,
+          action: 'create-checkout-session',
+          priceId: priceId
+        })
+      }, 15000); // 15 second timeout for checkout session creation
+
+      if (checkoutResponse.ok) {
+        const { checkoutUrl } = await checkoutResponse.json();
+        window.location.href = checkoutUrl;
+      } else {
+        if (checkoutResponse.status === 401 && window.SessionExpiredEvent) {
+          window.dispatchEvent(new window.SessionExpiredEvent());
+          return;
+        }
+        console.error('Failed to create checkout session');
+        alert('Unable to create payment session. Please try again or contact support.');
+        setIsCreatingCheckout(false);
+      }
+    } catch (error) {
+      console.error('Error creating checkout session:', error);
+      alert('Unable to create payment session. Please try again or contact support.');
+      setIsCreatingCheckout(false);
+    }
+  };
+
+  const checkUserStatus = async () => {
+    setStatusLoading(true);
+    try {
+      const userId = localStorage.getItem('userId');
+      const email = user?.email || localStorage.getItem('userEmail');
+      
+      if (!userId && !email) {
+        console.log('No userId or email found, showing subscription overlay');
+        setShowSubscriptionOverlay(true);
+        setStatusLoading(false);
+        return;
+      }
+      
+      // Check subscription status using the simplified subscription checker (via Stripe)
+      // New API: GET with no body - identity extracted from JWT claims
+      const idToken = SecureTokenStorage.getToken('idToken');
+      
+      const subscriptionResponse = await fetchWithTimeout('/api/check-subscription', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${idToken}`
+        }
+      }, 15000); // 15 second timeout for subscription check
+      
+      if (!subscriptionResponse.ok) {
+        const errorText = await subscriptionResponse.text();
+        console.error('API Error:', subscriptionResponse.status, errorText);
+        
+        // Handle session expiration during API call
+        if (subscriptionResponse.status === 401) {
+          window.dispatchEvent(new window.SessionExpiredEvent());
+          throw new Error('Session expired - please log in again');
+        }
+        
+        throw new Error('Subscription check failed: ' + subscriptionResponse.status + ' ' + errorText);
+      }
+      
+      const subscriptionData = await subscriptionResponse.json();
+
+      // Redirect first-time users to welcome page (with marketing tracking)
+      if (subscriptionData.isNewUser) {
+        window.location.href = '/app/welcome.html';
+        return;
+      }
+
+      setSubscriptionStatus(subscriptionData);
+      
+      // If no active subscription, use actual free tier usage from backend
+      if (!subscriptionData.isActive) {
+        const limit = subscriptionData.freeTierLimit || 5;
+        const used = subscriptionData.freeTierUsed || 0;
+        const remaining = Math.max(0, limit - used);
+
+        // Always set free tier status, even when depleted
+        // Paywall will show when user clicks Subscribe or tries to send a message
+        setFreeTierStatus({
+          remaining: remaining,
+          used: used,
+          limit: limit
+        });
+        setShowSubscriptionOverlay(false);
+      }
+      
+      // All checks passed, user can access app
+      setStatusLoading(false);
+      
+    } catch (error) {
+      console.error('Error checking user status:', error);
+      // If any error occurs, show subscription overlay
+      setShowSubscriptionOverlay(true);
+      setStatusLoading(false);
+    }
+  };
+
+  // Make subscription refresh available globally for UserProfile
+  window.refreshSubscriptionStatus = checkUserStatus;
+
+  // Make free tier status updater available globally for chat responses
+  window.updateFreeTierStatus = (freeTierData) => {
+    console.log('Free tier status update received:', freeTierData);
+    setFreeTierStatus(freeTierData);
+    // Don't auto-show modal - handleSubmit will check on next prompt attempt
+  };
+
+  // Memoized callbacks - must be defined BEFORE any early returns to maintain hook order
+  const handleSourcesUpdate = React.useCallback((sources, citations, shouldAppend = false, responseNum = null, isPreGrouped = false, detectedLanguage = null) => {
+    try {
+      // Update query language when provided by the sources SSE event
+      if (detectedLanguage) setQueryLanguage(detectedLanguage);
+      // If sources are already grouped (from loading saved chats), set them directly
+      if (isPreGrouped && Array.isArray(sources)) {
+        console.log('Setting pre-grouped sources:', sources.length, 'groups');
+        // Enhance each group's sources with cached metadata
+        const enhancedGroups = sources.map(group => ({
+          ...group,
+          sources: (group.sources || []).map(source => {
+            if (source.filename && !source.journal_number) {
+              const cacheKey = `enriched_${source.filename}`;
+              const cached = localStorage.getItem(cacheKey);
+              if (cached) {
+                try {
+                  const enrichedData = JSON.parse(cached);
+                  if (Date.now() - enrichedData.cached_at < 30 * 24 * 60 * 60 * 1000) {
+                    return { ...source, ...enrichedData };
+                  }
+                } catch (e) { /* ignore */ }
+              }
+            }
+            return source;
+          })
+        }));
+        setCurrentSources(enhancedGroups);
+        setCurrentCitations(citations || []);
+        setResponseCounter(enhancedGroups.length);
+        return;
+      }
+
+      // Cache enriched metadata in localStorage for persistence across page reloads
+      if (sources && sources.length > 0) {
+        sources.forEach(source => {
+          if (source.filename && source.journal_number) {
+            const cacheKey = `enriched_${source.filename}`;
+            const enrichedData = {
+              filename: source.filename,
+              title: source.title,
+              journal_number: source.journal_number,
+              source_url: source.source_url,
+              jurisdiction: source.jurisdiction,
+              cached_at: Date.now()
+            };
+            localStorage.setItem(cacheKey, JSON.stringify(enrichedData));
+          }
+        });
+      }
+
+      if (shouldAppend) {
+        // Append new sources for the current response
+        setCurrentSources(prevGroups => {
+          if (!Array.isArray(prevGroups)) prevGroups = [];
+
+          // Use provided responseNum or calculate from counter
+          const currentResponseNum = responseNum !== null ? responseNum : responseCounter + 1;
+
+          // Check if we already have a group for this response
+          const existingGroupIndex = prevGroups.findIndex(g => g.responseNumber === currentResponseNum);
+
+          // Get existing identifiers only from the CURRENT response group (not all groups)
+          // This allows the same source to appear in multiple responses
+          const existingIdentifiers = new Set();
+          if (existingGroupIndex >= 0) {
+            (prevGroups[existingGroupIndex].sources || []).forEach(source => {
+              if (source) {
+                if (source.filename) existingIdentifiers.add(source.filename);
+                if (source.source_url) existingIdentifiers.add(source.source_url);
+              }
+            });
+          }
+
+          // Filter to only new sources within this response (use filename or source_url as identifier)
+          const newSources = (sources || []).filter(source => {
+            if (!source) return false;
+            const identifier = source.filename || source.source_url;
+            if (!identifier) return true; // Include sources without identifiers
+            return !existingIdentifiers.has(identifier);
+          });
+
+          if (newSources.length === 0) return prevGroups;
+
+          if (existingGroupIndex >= 0) {
+            // Add to existing group
+            const updatedGroups = [...prevGroups];
+            updatedGroups[existingGroupIndex] = {
+              ...updatedGroups[existingGroupIndex],
+              sources: [...updatedGroups[existingGroupIndex].sources, ...newSources]
+            };
+            return updatedGroups;
+          } else {
+            // Create new response group
+            return [...prevGroups, { responseNumber: currentResponseNum, sources: newSources }];
+          }
+        });
+
+        // Apply new citations and append (URL discovery removed)
+        setCurrentCitations(prevCitations => {
+          if (!Array.isArray(prevCitations)) prevCitations = [];
+          const existingFilenames = prevCitations
+            .filter(citation => citation && citation.filename)
+            .map(citation => citation.filename);
+          const newCitations = (citations || [])
+            .filter(citation => citation && citation.filename && !existingFilenames.includes(citation.filename));
+          return [...prevCitations, ...newCitations];
+        });
+      } else {
+        // Replace sources (for loading saved citations or new chats)
+        // Enhance sources with cached enriched metadata
+        const enhancedSources = (sources || []).map(source => {
+          if (source.filename && !source.journal_number) {
+            const cacheKey = `enriched_${source.filename}`;
+            const cached = localStorage.getItem(cacheKey);
+            if (cached) {
+              try {
+                const enrichedData = JSON.parse(cached);
+                // Use cached data if it's less than 30 days old
+                if (Date.now() - enrichedData.cached_at < 30 * 24 * 60 * 60 * 1000) {
+                  return { ...source, ...enrichedData };
+                }
+              } catch (e) {
+                console.warn('Error parsing cached enriched data:', e);
+              }
+            }
+          }
+          return source;
+        });
+
+        // When loading saved chat, group all sources as "Previous Session"
+        if (enhancedSources.length > 0) {
+          setCurrentSources([{ responseNumber: 0, sources: enhancedSources, isLegacy: true }]);
+        } else {
+          setCurrentSources([]);
+        }
+        setCurrentCitations(citations || []);
+        setResponseCounter(0);
+      }
+    } catch (error) {
+      console.error('Error in handleSourcesUpdate:', error);
+      // Fallback to replace mode if append fails
+      if (sources && sources.length > 0) {
+        setCurrentSources([{ responseNumber: 0, sources: sources, isLegacy: true }]);
+      } else {
+        setCurrentSources([]);
+      }
+      setCurrentCitations(citations || []);
+    }
+  }, [responseCounter]);
+
+  // Append new artifacts for the current response, grouped by response number.
+  const handleArtifactsUpdate = React.useCallback((artifacts, responseNum = null) => {
+    if (!Array.isArray(artifacts) || artifacts.length === 0) return;
+    setCurrentArtifacts(prevGroups => {
+      if (!Array.isArray(prevGroups)) prevGroups = [];
+      const currentResponseNum = responseNum !== null ? responseNum : responseCounter + 1;
+      const existingIndex = prevGroups.findIndex(g => g.responseNumber === currentResponseNum);
+      if (existingIndex >= 0) {
+        // Append to existing group (handles multiple artifact events in one response)
+        const updated = [...prevGroups];
+        updated[existingIndex] = {
+          ...updated[existingIndex],
+          artifacts: [...updated[existingIndex].artifacts, ...artifacts]
+        };
+        return updated;
+      }
+      return [...prevGroups, { responseNumber: currentResponseNum, artifacts }];
+    });
+  }, [responseCounter]);
+
+  const handleLibraryDocumentAttach = React.useCallback((fn) => {
+    setAttachLibraryDocumentFn(() => fn);
+  }, []);
+
+  // Step 1: Wait for auth system initialization only
+  if (loading || !configLoaded) {
+    return React.createElement('div', {
+      className: 'loading-screen'
+    },
+      React.createElement('div', { className: 'loading-screen-content' },
+        React.createElement('div', { className: 'loading-screen-logo' }, 'eulaw.ai'),
+        React.createElement('div', { className: 'loading-screen-text' }, 'loading...')
+      )
+    );
+  }
+
+  // Step 2: If not authenticated, redirect immediately (don't wait for statusLoading)
+  // UNLESS we're in local dev mode
+  const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  if (!isAuthenticated && !isLocalDev) {
+    // Redirect to landing page instead of showing login screen
+    window.location.href = window.location.origin.replace('/app', '') + "/";
+    return null;
+  }
+
+  // Step 3: User IS authenticated - now check subscription status
+  if (statusLoading) {
+    return React.createElement('div', {
+      className: 'loading-screen'
+    },
+      React.createElement('div', { className: 'loading-screen-content' },
+        React.createElement('div', { className: 'loading-screen-logo' }, 'eulaw.ai'),
+        React.createElement('div', { className: 'loading-screen-text' }, 'loading...')
+      )
+    );
+  }
+
+  const handleSelectSession = (sessionId) => {
+    console.log('Switching to session:', sessionId);
+    setCurrentSessionId(sessionId);
+    setCurrentSources([]);
+    setCurrentCitations([]);
+    setCurrentArtifacts([]);
+    setShowMobileSidebar(false); // Close mobile sidebar
+  };
+
+  const handleNewChat = () => {
+    // Generate a new session ID immediately
+    const newSessionId = crypto.randomUUID();
+    setCurrentSessionId(newSessionId);
+    setCurrentSources([]);
+    setCurrentCitations([]);
+    setCurrentArtifacts([]);
+    setResponseCounter(0);
+
+    // Add new chat to tree data directly (root folder)
+    const newSession = { id: newSessionId, sessionId: newSessionId, type: 'session', title: 'New Chat', lastActivityAt: new Date().toISOString() };
+    setChatTreeData(prev => {
+      const root = prev['root'] || { items: [], loaded: true };
+      return { ...prev, root: { ...root, items: [newSession, ...root.items.filter(i => i.id !== newSessionId)] } };
+    });
+
+    setShowMobileSidebar(false); // Close mobile sidebar
+  };
+
+  const handleNewSession = (newSessionId) => {
+    setCurrentSessionId(newSessionId);
+  };
+
+  const handleMessageComplete = () => {
+    // No need for refresh - new sessions are added directly
+  };
+
+  const handleAddNewSession = (sessionId, title) => {
+    // Update session title in chatTreeData (used when first message completes)
+    setChatTreeData(prev => {
+      const next = { ...prev };
+      // Search all loaded folders for the session
+      for (const [folderId, folderData] of Object.entries(next)) {
+        const idx = folderData.items?.findIndex(i => i.id === sessionId);
+        if (idx !== undefined && idx !== -1) {
+          const updatedItems = [...folderData.items];
+          updatedItems[idx] = { ...updatedItems[idx], title: title };
+          next[folderId] = { ...folderData, items: updatedItems };
+          return next;
+        }
+      }
+      // Not found anywhere — add to root
+      const root = next['root'] || { items: [], loaded: true };
+      const newSession = { id: sessionId, sessionId: sessionId, type: 'session', title: title, lastActivityAt: new Date().toISOString() };
+      next['root'] = { ...root, items: [newSession, ...root.items] };
+      return next;
+    });
+  };
+
+  // Function to increment response counter when a new AI response starts
+  const incrementResponseCounter = () => {
+    const newCounter = responseCounterRef.current + 1;
+    setResponseCounter(newCounter);
+    responseCounterRef.current = newCounter;
+    return newCounter;
+  };
+
+  // Reset sources and counter when starting a new chat
+  const resetSourcesForNewChat = () => {
+    setCurrentSources([]);
+    setCurrentCitations([]);
+    setCurrentArtifacts([]);
+    setResponseCounter(0);
+    responseCounterRef.current = 0;
+  };
+
+  const handleUserProfileOpen = () => {
+    setShowUserProfile(true);
+  };
+
+  const handleUserProfileClose = () => {
+    setShowUserProfile(false);
+  };
+
+  const handleLogout = () => {
+    logout();
+    setShowUserProfile(false);
+  };
+
+
+  // Mobile navigation handlers
+  const handleMobileNavBarToggle = () => {
+    // If any panel is open, close everything (burger acts as close button)
+    if (showMobileSidebar || showMobileSources || showMobileDocuments || showMobileNavBar) {
+      setShowMobileSidebar(false);
+      setShowMobileSources(false);
+      setShowMobileDocuments(false);
+      setShowMobileNavBar(false);
+    } else {
+      // No panels open, show the nav bar
+      setShowMobileNavBar(true);
+    }
+  };
+
+  const handleMobileClose = () => {
+    setShowMobileSidebar(false);
+    setShowMobileSources(false);
+    setShowMobileNavBar(false);
+    setShowMobileDocuments(false);
+  };
+
+  // Mobile chat history toggle (from NavIconBar)
+  const handleMobileHistoryToggle = () => {
+    setShowMobileNavBar(false); // Close nav bar
+    const willShow = !showMobileSidebar;
+    setShowMobileSidebar(willShow);
+    setShowMobileSources(false);
+    if (willShow && !chatTreeData['root']?.loaded) {
+      loadChatTree();
+    }
+  };
+
+  // Mobile documents toggle (from NavIconBar)
+  const handleMobileDocumentsToggle = () => {
+    setShowMobileNavBar(false); // Close nav bar
+    if (!treeData['root']?.loaded) {
+      loadDocumentLibrary();
+    }
+    setShowMobileDocuments(!showMobileDocuments);
+    setShowMobileSidebar(false);
+    setShowMobileSources(false);
+  };
+
+  // Mobile sources toggle (from NavIconBar)
+  const handleMobileSourcesToggle = () => {
+    setShowMobileNavBar(false); // Close nav bar
+    setShowMobileSources(!showMobileSources);
+    setShowMobileSidebar(false);
+  };
+
+  // Historic filter toggle (cycles: current -> all -> historic -> current)
+  const handleInForceToggle = () => {
+    setInForceFilter(prev => {
+      const next = (prev + 1) % 3;
+      localStorage.setItem('inForceFilter', next.toString());
+      return next;
+    });
+  };
+
+  // Desktop chat history panel toggle
+  const handleHistoryPanelToggle = () => {
+    const willShow = !showChatHistoryPanel;
+    setShowChatHistoryPanel(willShow);
+    // Hide documents panel when showing history
+    if (willShow) {
+      setShowDocumentLibraryPanel(false);
+      if (!chatTreeData['root']?.loaded) loadChatTree();
+    }
+    localStorage.setItem('leftPanelTab', willShow ? 'history' : '');
+  };
+
+  // Load a single folder's contents into treeData
+  const loadFolderContents = async (folderId = 'root') => {
+    try {
+      const folderData = await apiService.getDocumentLibrary(folderId);
+      setTreeData(prev => ({
+        ...prev,
+        [folderId]: { items: folderData.items || [], loaded: true }
+      }));
+    } catch (error) {
+      console.error('Failed to load folder contents:', error);
+      setTreeData(prev => {
+        // If we already have cached data, preserve it on reload error
+        if (prev[folderId]?.loaded) return prev;
+        // Only set empty for first-time load failures (nothing to preserve)
+        return { ...prev, [folderId]: { items: [], loaded: true } };
+      });
+    }
+  };
+
+  // Load root folder (used on panel open)
+  const loadDocumentLibrary = async () => {
+    setDocumentsLoading(true);
+    try {
+      await loadFolderContents('root');
+    } finally {
+      setDocumentsLoading(false);
+    }
+  };
+
+  // Toggle folder expand/collapse
+  const handleToggleFolder = async (folderId) => {
+    const isExpanded = expandedFolders.has(folderId);
+    setExpandedFolders(prev => {
+      const next = new Set(prev);
+      if (isExpanded) {
+        next.delete(folderId);
+      } else {
+        next.add(folderId);
+      }
+      return next;
+    });
+    // Load contents on first expand
+    if (!isExpanded && !treeData[folderId]?.loaded) {
+      loadFolderContents(folderId);
+    }
+  };
+
+  // Create a new folder
+  const handleCreateFolder = async (name, parentId) => {
+    try {
+      await apiService.createFolder(name, parentId);
+      await loadFolderContents(parentId);
+    } catch (error) {
+      console.error('Failed to create folder:', error);
+      alert(error.message || 'Failed to create folder');
+    }
+  };
+
+  // Rename a folder
+  const handleRenameFolder = async (itemId, newName, parentId) => {
+    try {
+      await apiService.renameFolder(itemId, newName);
+      await loadFolderContents(parentId);
+    } catch (error) {
+      console.error('Failed to rename folder:', error);
+      alert(error.message || 'Failed to rename folder');
+    }
+  };
+
+  // Collect a folder and all its cached descendant folder IDs from treeData
+  const collectFolderAndDescendants = (folderId) => {
+    const result = new Set([folderId]);
+    const walk = (id) => {
+      const folder = treeData[id];
+      if (!folder?.items) return;
+      for (const child of folder.items) {
+        if (child.type === 'folder') {
+          result.add(child.itemId);
+          walk(child.itemId);
+        }
+      }
+    };
+    walk(folderId);
+    return result;
+  };
+
+  // Delete a folder
+  const handleDeleteFolder = async (itemId, parentId) => {
+    try {
+      await apiService.deleteFolder(itemId, true);
+      const foldersToRemove = collectFolderAndDescendants(itemId);
+      // Remove from expanded set, treeData cache, AND parent's items list
+      setExpandedFolders(prev => {
+        const next = new Set(prev);
+        foldersToRemove.forEach(id => next.delete(id));
+        return next;
+      });
+      setTreeData(prev => {
+        const next = { ...prev };
+        foldersToRemove.forEach(id => delete next[id]);
+        // Optimistically remove the deleted folder from parent's items
+        const parentFolder = next[parentId];
+        if (parentFolder) {
+          next[parentId] = {
+            ...parentFolder,
+            items: parentFolder.items.filter(item => item.itemId !== itemId)
+          };
+        }
+        return next;
+      });
+      // Reload parent to get authoritative data from backend
+      await loadFolderContents(parentId);
+    } catch (error) {
+      console.error('Failed to delete folder:', error);
+      alert(error.message || 'Failed to delete folder');
+    }
+  };
+
+  // Move an item (file or folder) to a new parent
+  const handleMoveItem = async (itemId, type, newParentId, oldParentId) => {
+    try {
+      if (type === 'folder') {
+        await apiService.moveFolder(itemId, newParentId);
+        const foldersToInvalidate = collectFolderAndDescendants(itemId);
+        // Clear cached data for moved folder/descendants AND remove from old parent's items
+        setTreeData(prev => {
+          const next = { ...prev };
+          foldersToInvalidate.forEach(id => delete next[id]);
+          const oldFolder = next[oldParentId];
+          if (oldFolder) {
+            next[oldParentId] = {
+              ...oldFolder,
+              items: oldFolder.items.filter(item => item.itemId !== itemId)
+            };
+          }
+          return next;
+        });
+        // Collapse moved folder and descendants so no stale spinners appear
+        setExpandedFolders(prev => {
+          const next = new Set(prev);
+          foldersToInvalidate.forEach(id => next.delete(id));
+          return next;
+        });
+      } else {
+        await apiService.moveFile(itemId, newParentId);
+        // Optimistically remove file from old parent's items
+        setTreeData(prev => {
+          const oldFolder = prev[oldParentId];
+          if (oldFolder) {
+            return {
+              ...prev,
+              [oldParentId]: {
+                ...oldFolder,
+                items: oldFolder.items.filter(item => item.itemId !== itemId)
+              }
+            };
+          }
+          return prev;
+        });
+      }
+      // Ensure target folder is expanded so user can see the moved item
+      if (newParentId !== 'root') {
+        setExpandedFolders(prev => {
+          const next = new Set(prev);
+          next.add(newParentId);
+          return next;
+        });
+      }
+      // Reload both source and target folders
+      await Promise.all([
+        loadFolderContents(oldParentId),
+        loadFolderContents(newParentId)
+      ]);
+      // Safety net: ensure moved item is removed from source even if reload returned stale data
+      setTreeData(prev => {
+        const oldFolder = prev[oldParentId];
+        if (oldFolder && oldFolder.items.some(item => item.itemId === itemId)) {
+          return {
+            ...prev,
+            [oldParentId]: {
+              ...oldFolder,
+              items: oldFolder.items.filter(item => item.itemId !== itemId)
+            }
+          };
+        }
+        return prev;
+      });
+    } catch (error) {
+      console.error('Failed to move item:', error);
+      alert(error.message || 'Failed to move item');
+    }
+  };
+
+  // ============ CHAT TREE HANDLERS ============
+
+  // Load a single chat folder's contents into chatTreeData
+  const loadChatFolderContents = async (folderId = 'root') => {
+    try {
+      const data = await apiService.getChatFolderContents(folderId);
+      setChatTreeData(prev => ({
+        ...prev,
+        [folderId]: { items: data.items || [], loaded: true }
+      }));
+    } catch (error) {
+      console.error('Failed to load chat folder contents:', error);
+      setChatTreeData(prev => {
+        if (prev[folderId]?.loaded) return prev;
+        return { ...prev, [folderId]: { items: [], loaded: true } };
+      });
+    }
+  };
+
+  // Load root chat folder (used on panel open)
+  const loadChatTree = async () => {
+    setChatFoldersLoading(true);
+    try {
+      await loadChatFolderContents('root');
+    } finally {
+      setChatFoldersLoading(false);
+    }
+  };
+
+  // Toggle chat folder expand/collapse
+  const handleChatToggleFolder = async (folderId) => {
+    const isExpanded = chatExpandedFolders.has(folderId);
+    setChatExpandedFolders(prev => {
+      const next = new Set(prev);
+      if (isExpanded) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+    if (!isExpanded && !chatTreeData[folderId]?.loaded) {
+      loadChatFolderContents(folderId);
+    }
+  };
+
+  // Create a chat folder
+  const handleCreateChatFolder = async (name, parentId) => {
+    try {
+      await apiService.createChatFolder(name, parentId);
+      await loadChatFolderContents(parentId);
+    } catch (error) {
+      console.error('Failed to create chat folder:', error);
+      alert(error.message);
+    }
+  };
+
+  // Rename a chat folder
+  const handleRenameChatFolder = async (folderId, newName, parentId) => {
+    try {
+      await apiService.renameChatFolder(folderId, newName);
+      await loadChatFolderContents(parentId);
+    } catch (error) {
+      console.error('Failed to rename chat folder:', error);
+      alert(error.message);
+    }
+  };
+
+  // Collect chat folder and all cached descendant folder IDs
+  const collectChatFolderAndDescendants = (folderId) => {
+    const result = new Set([folderId]);
+    const walk = (id) => {
+      const folder = chatTreeData[id];
+      if (!folder?.items) return;
+      for (const child of folder.items) {
+        if (child.type === 'folder') {
+          result.add(child.id);
+          walk(child.id);
+        }
+      }
+    };
+    walk(folderId);
+    return result;
+  };
+
+  // Delete a chat folder
+  const handleDeleteChatFolder = async (folderId, parentId) => {
+    try {
+      // Check if current session is inside the deleted subtree
+      const foldersToRemove = collectChatFolderAndDescendants(folderId);
+      let shouldClearSession = false;
+      if (currentSessionId) {
+        for (const fId of foldersToRemove) {
+          const folderData = chatTreeData[fId];
+          if (folderData?.items?.some(item => item.type === 'session' && item.id === currentSessionId)) {
+            shouldClearSession = true;
+            break;
+          }
+        }
+      }
+
+      await apiService.deleteChatFolder(folderId);
+
+      // Optimistic UI cleanup
+      setChatExpandedFolders(prev => {
+        const next = new Set(prev);
+        foldersToRemove.forEach(id => next.delete(id));
+        return next;
+      });
+      setChatTreeData(prev => {
+        const next = { ...prev };
+        foldersToRemove.forEach(id => delete next[id]);
+        const parentFolder = next[parentId];
+        if (parentFolder) {
+          next[parentId] = {
+            ...parentFolder,
+            items: parentFolder.items.filter(item => item.id !== folderId)
+          };
+        }
+        return next;
+      });
+
+      if (shouldClearSession) {
+        setCurrentSessionId(null);
+        setCurrentSources([]);
+        setCurrentCitations([]);
+      }
+
+      await loadChatFolderContents(parentId);
+    } catch (error) {
+      console.error('Failed to delete chat folder:', error);
+      alert(error.message);
+    }
+  };
+
+  // Move a chat item (folder or session) to a new parent
+  const handleMoveChatItem = async (itemId, type, newParentId, oldParentId) => {
+    try {
+      if (type === 'folder') {
+        await apiService.moveChatFolder(itemId, newParentId);
+        const foldersToInvalidate = collectChatFolderAndDescendants(itemId);
+        setChatTreeData(prev => {
+          const next = { ...prev };
+          foldersToInvalidate.forEach(id => delete next[id]);
+          const oldFolder = next[oldParentId];
+          if (oldFolder) {
+            next[oldParentId] = {
+              ...oldFolder,
+              items: oldFolder.items.filter(item => item.id !== itemId)
+            };
+          }
+          return next;
+        });
+        setChatExpandedFolders(prev => {
+          const next = new Set(prev);
+          foldersToInvalidate.forEach(id => next.delete(id));
+          return next;
+        });
+      } else {
+        await apiService.moveChatSession(itemId, newParentId);
+        setChatTreeData(prev => {
+          const oldFolder = prev[oldParentId];
+          if (oldFolder) {
+            return {
+              ...prev,
+              [oldParentId]: {
+                ...oldFolder,
+                items: oldFolder.items.filter(item => item.id !== itemId)
+              }
+            };
+          }
+          return prev;
+        });
+      }
+      // Expand target folder
+      if (newParentId !== 'root') {
+        setChatExpandedFolders(prev => {
+          const next = new Set(prev);
+          next.add(newParentId);
+          return next;
+        });
+      }
+      await Promise.all([
+        loadChatFolderContents(oldParentId),
+        loadChatFolderContents(newParentId)
+      ]);
+      // Safety net: ensure moved item is removed from source
+      setChatTreeData(prev => {
+        const oldFolder = prev[oldParentId];
+        if (oldFolder && oldFolder.items.some(item => item.id === itemId)) {
+          return {
+            ...prev,
+            [oldParentId]: {
+              ...oldFolder,
+              items: oldFolder.items.filter(item => item.id !== itemId)
+            }
+          };
+        }
+        return prev;
+      });
+    } catch (error) {
+      console.error('Failed to move chat item:', error);
+      alert(error.message);
+      // Restore UI by reloading both folders
+      await Promise.all([
+        loadChatFolderContents(oldParentId),
+        loadChatFolderContents(newParentId)
+      ]);
+    }
+  };
+
+  // Rename a chat session
+  const handleRenameChatSession = async (sessionId, newTitle, parentId) => {
+    try {
+      await apiService.renameChat(sessionId, newTitle);
+      await loadChatFolderContents(parentId);
+    } catch (error) {
+      console.error('Failed to rename chat session:', error);
+      alert(error.message);
+    }
+  };
+
+  // Delete a chat session
+  const handleDeleteChatSession = async (sessionId, parentId) => {
+    // Streaming guard
+    if (sessionId === currentSessionId && isStreaming) {
+      alert('Cannot delete a session while it is streaming.');
+      return;
+    }
+
+    try {
+      // Optimistic UI removal
+      setChatTreeData(prev => {
+        const parentFolder = prev[parentId];
+        if (parentFolder) {
+          return {
+            ...prev,
+            [parentId]: {
+              ...parentFolder,
+              items: parentFolder.items.filter(item => item.id !== sessionId)
+            }
+          };
+        }
+        return prev;
+      });
+
+      if (sessionId === currentSessionId) {
+        setCurrentSessionId(null);
+        setCurrentSources([]);
+        setCurrentCitations([]);
+      }
+
+      await apiService.deleteChat(sessionId);
+      await loadChatFolderContents(parentId);
+    } catch (error) {
+      console.error('Failed to delete chat session:', error);
+      alert(error.message);
+      // Restore on failure
+      await loadChatFolderContents(parentId);
+    }
+  };
+
+  // Desktop document library panel toggle
+  const handleDocumentsPanelToggle = () => {
+    const willShow = !showDocumentLibraryPanel;
+    setShowDocumentLibraryPanel(willShow);
+    // Hide history panel when showing documents
+    if (willShow) {
+      setShowChatHistoryPanel(false);
+      // Load root if not already loaded
+      if (!treeData['root']?.loaded) {
+        loadDocumentLibrary();
+      }
+    }
+    localStorage.setItem('leftPanelTab', willShow ? 'documents' : '');
+  };
+
+  // Desktop sources panel toggle
+  const handleSourcesPanelToggle = () => {
+    const newState = !showSourcesPanel;
+    setShowSourcesPanel(newState);
+    localStorage.setItem('sourcesPanelOpen', JSON.stringify(newState));
+  };
+
+  // Open sources panel from favicon, [n] citation click, or artifact pill click
+  // (always opens, never closes). On mobile (≤768px), opens the mobile fullscreen
+  // panel; on desktop, the side panel.
+  // When `artifactId` is provided, switches to the Documents tab and expands
+  // that artifact. Otherwise switches to the Sources tab.
+  const handleOpenSourcesPanel = (responseNumber, sourceIndex = 0, artifactId = null) => {
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    if (isMobile) {
+      setShowMobileSources(true);
+      setShowMobileNavBar(false);
+      setShowMobileSidebar(false);
+      setShowMobileDocuments(false);
+    } else {
+      setShowSourcesPanel(true);
+      localStorage.setItem('sourcesPanelOpen', 'true');
+    }
+    if (artifactId) {
+      setSourcePanelTab('artifacts');
+      setExpandSourceKey(`artifact-${artifactId}`);
+    } else {
+      setSourcePanelTab('sources');
+      if (responseNumber != null) {
+        setExpandSourceKey(`response-${responseNumber}-source-${sourceIndex}`);
+      }
+    }
+  };
+
+  // Save AI response to document library
+  const handleSaveToLibrary = async (message, citations, userQuestion, responseNumber) => {
+    try {
+      const result = await apiService.saveAIResponseToLibrary(message, citations, userQuestion, responseNumber);
+      console.log('Saved AI response to library:', result);
+      // Always refresh root — if panel opens later, data will be current
+      if (treeData['root']?.loaded) {
+        await loadFolderContents('root');
+      }
+      return true;
+    } catch (error) {
+      console.error('Failed to save to library:', error);
+      return false;
+    }
+  };
+
+  const handleSubscribe = async () => {
+    if (!agreementAccepted) {
+      alert('Please accept the User License Agreement to continue.');
+      return;
+    }
+    
+    const accessToken = SecureTokenStorage.getToken('accessToken');
+    if (!accessToken || !user) {
+      alert('Authentication error. Please log in again.');
+      return;
+    }
+    
+    setIsCreatingCheckout(true);
+    try {
+      await redirectToCheckout(accessToken, user);
+    } catch (error) {
+      console.error('Error creating subscription:', error);
+      alert('Unable to create subscription. Please try again.');
+      setIsCreatingCheckout(false);
+    }
+  };
+
+  return React.createElement('div', {
+    className: 'main-app-container'
+  },
+    // Navigation Icon Bar (slim left sidebar - desktop, overlay on mobile)
+    React.createElement(window.NavIconBar, {
+      onNewChat: handleNewChat,
+      onHistoryToggle: handleHistoryPanelToggle,
+      onDocumentsToggle: handleDocumentsPanelToggle,
+      onSourcesToggle: handleSourcesPanelToggle,
+      onUserClick: handleUserProfileOpen,
+      onThemeToggle: handleThemeToggle,
+      onTutorialClick: handleTutorialClick,
+      isHistoryVisible: showChatHistoryPanel,
+      isDocumentsVisible: showDocumentLibraryPanel,
+      isSourcesVisible: showSourcesPanel,
+      subscriptionStatus: subscriptionStatus,
+      isStreaming: isStreaming,
+      theme: theme,
+      tutorialStep: tutorialStep,
+      showMobile: showMobileNavBar,
+      onMobileClose: handleMobileClose,
+      onMobileHistoryToggle: handleMobileHistoryToggle,
+      onMobileDocumentsToggle: handleMobileDocumentsToggle,
+      onMobileSourcesToggle: handleMobileSourcesToggle,
+      inForceFilter: inForceFilter,
+      onInForceToggle: handleInForceToggle,
+      onSubscribeClick: () => setShowSubscriptionOverlay(true)
+    }),
+
+    // Chat history panel (toggleable on desktop, mobile overlay)
+    (showChatHistoryPanel || showMobileSidebar) && React.createElement('div', {
+      className: showMobileSidebar ? 'sidebar-wrapper mobile-show' : 'sidebar-wrapper',
+      style: showMobileSidebar ? {} : { width: 'auto' }
+    },
+      React.createElement(window.ChatHistory, {
+        chatTreeData: chatTreeData,
+        expandedFolders: chatExpandedFolders,
+        loading: chatFoldersLoading,
+        onToggleFolder: handleChatToggleFolder,
+        onCreateFolder: handleCreateChatFolder,
+        onRenameFolder: handleRenameChatFolder,
+        onDeleteFolder: handleDeleteChatFolder,
+        onMoveItem: handleMoveChatItem,
+        onRenameSession: handleRenameChatSession,
+        onDeleteSession: handleDeleteChatSession,
+        onSelectSession: handleSelectSession,
+        currentSessionId: currentSessionId,
+        isStreaming: isStreaming,
+        onClearCurrentSession: () => {
+          setCurrentSessionId(null);
+          setCurrentSources([]);
+          setCurrentCitations([]);
+        },
+        showMobile: showMobileSidebar,
+        onMobileClose: handleMobileClose
+      })
+    ),
+
+    // Document Library panel (toggleable, replaces chat history when shown)
+    (showDocumentLibraryPanel || showMobileDocuments) && React.createElement('div', {
+      className: showMobileDocuments ? 'sidebar-wrapper mobile-show' : 'sidebar-wrapper',
+      style: showMobileDocuments ? {} : { width: 'auto' }
+    },
+      React.createElement(window.DocumentLibrary, {
+        treeData: treeData,
+        expandedFolders: expandedFolders,
+        selectedItemId: selectedItemId,
+        loading: documentsLoading,
+        onToggleFolder: handleToggleFolder,
+        onCreateFolder: handleCreateFolder,
+        onRenameFolder: handleRenameFolder,
+        onDeleteFolder: handleDeleteFolder,
+        onMoveItem: handleMoveItem,
+        onDocumentSelect: (doc) => {
+          setSelectedItemId(doc.itemId);
+          if (attachLibraryDocumentFn) {
+            attachLibraryDocumentFn(doc);
+          }
+          if (showMobileDocuments) {
+            setShowMobileDocuments(false);
+          }
+        },
+        onDocumentRename: async (itemId, newName, parentId) => {
+          try {
+            await apiService.renameLibraryDocument(itemId, newName);
+            await loadFolderContents(parentId);
+          } catch (error) {
+            console.error('Failed to rename document:', error);
+            alert(error.message || 'Failed to rename document');
+          }
+        },
+        onDocumentDelete: async (itemId, parentId) => {
+          try {
+            await apiService.deleteLibraryDocument(itemId);
+            // Optimistically remove from parent's items immediately
+            setTreeData(prev => {
+              const parentFolder = prev[parentId];
+              if (parentFolder) {
+                return {
+                  ...prev,
+                  [parentId]: {
+                    ...parentFolder,
+                    items: parentFolder.items.filter(item => item.itemId !== itemId)
+                  }
+                };
+              }
+              return prev;
+            });
+            await loadFolderContents(parentId);
+          } catch (error) {
+            console.error('Failed to delete document:', error);
+            alert(error.message || 'Failed to delete document');
+          }
+        },
+        onRefresh: () => {
+          loadDocumentLibrary();
+        },
+        onUpload: async (file, parentId) => {
+          try {
+            const folderId = parentId || 'root';
+            await apiService.uploadFileToLibrary(file, folderId);
+            await loadFolderContents(folderId);
+            // Expand the target folder so uploaded files are visible
+            if (folderId !== 'root') {
+              setExpandedFolders(prev => {
+                if (prev.has(folderId)) return prev;
+                const next = new Set(prev);
+                next.add(folderId);
+                return next;
+              });
+            }
+          } catch (error) {
+            console.error('Failed to upload document:', error);
+            alert(error.message || 'Failed to upload document');
+          }
+        },
+        showMobile: showMobileDocuments,
+        onMobileClose: handleMobileClose
+      })
+    ),
+
+    // Main chat area
+    React.createElement(window.ChatInterface, {
+      sessionId: currentSessionId,
+      onNewSession: handleNewSession,
+      onSourcesUpdate: handleSourcesUpdate,
+      onArtifactsUpdate: handleArtifactsUpdate,
+      onMessageComplete: handleMessageComplete,
+      onStreamingChange: (streaming) => setIsStreaming(streaming),
+      onAddNewSession: handleAddNewSession,
+      onIncrementResponseCounter: incrementResponseCounter,
+      onResetSources: resetSourcesForNewChat,
+      responseCounter: responseCounter,
+      freeTierStatus: freeTierStatus,
+      onFreeTierExhausted: () => setShowSubscriptionOverlay(true),
+      onSaveToLibrary: handleSaveToLibrary,
+      onLibraryDocumentAttach: handleLibraryDocumentAttach,
+      onDocumentUploaded: () => {
+        if (showDocumentLibraryPanel) {
+          loadFolderContents('root');
+        }
+      },
+      inForceFilter: inForceFilter,
+      onInForceFilterChange: (v) => { const val = typeof v === 'function' ? v(inForceFilter) : v; setInForceFilter(val); localStorage.setItem('inForceFilter', val.toString()); },
+      onOpenSourcesPanel: handleOpenSourcesPanel,
+      mobileNavComponent: React.createElement(window.MobileNavigation, {
+        onMenuClick: handleMobileNavBarToggle
+      })
+    }),
+
+    // Data scope floating card
+    React.createElement(window.DataScope),
+
+    // Sources panel toggle arrow (desktop only)
+    React.createElement('button', {
+      className: `source-panel-toggle-arrow`,
+      onClick: handleSourcesPanelToggle,
+      title: showSourcesPanel ? 'Close Sources & Citations' : 'Open Sources & Citations'
+    }, React.createElement('i', { className: `fas fa-chevron-${showSourcesPanel ? 'right' : 'left'}` })),
+
+    // Sources panel (toggleable on desktop and mobile)
+    (showSourcesPanel || showMobileSources) && React.createElement(window.SourcePanel, {
+      sources: currentSources,
+      citations: currentCitations,
+      artifacts: currentArtifacts,
+      showMobile: showMobileSources,
+      onMobileClose: handleMobileClose,
+      onClose: handleSourcesPanelToggle,
+      expandSourceKey: expandSourceKey,
+      onSourceExpanded: () => setExpandSourceKey(null),
+      queryLanguage: queryLanguage,
+      onSaveToLibrary: handleSaveToLibrary,
+      activeTab: sourcePanelTab,
+      onActiveTabChange: setSourcePanelTab
+    }),
+    showUserProfile && React.createElement(window.UserProfile, {
+      user: user,
+      onClose: handleUserProfileClose,
+      onLogout: handleLogout,
+      subscriptionStatus: subscriptionStatus,
+      onPrivacyClick: () => setShowPrivacyPolicy(true)
+    }),
+    showSubscriptionOverlay && React.createElement(window.SubscriptionOverlay, {
+      onClose: () => setShowSubscriptionOverlay(false),
+      onLicenseClick: () => setShowLicenseAgreement(true),
+      onPrivacyClick: () => setShowPrivacyPolicy(true),
+      agreementAccepted: agreementAccepted,
+      onAgreementChange: setAgreementAccepted,
+      onSubscribe: handleSubscribe,
+      isLoading: isCreatingCheckout
+    }),
+    showLicenseAgreement && React.createElement(window.LicenseAgreementModal, {
+      onClose: () => setShowLicenseAgreement(false)
+    }),
+    showPrivacyPolicy && React.createElement(window.PrivacyPolicyModal, {
+      onClose: () => setShowPrivacyPolicy(false)
+    }),
+    showTermsOfService && React.createElement(window.TermsOfServiceModal, {
+      onClose: () => setShowTermsOfService(false)
+    }),
+    sessionExpired && React.createElement(window.SessionExpiredModal, {
+      onRelogin: () => {
+        setSessionExpired(false);
+        window.authService.login();
+      }
+    }),
+
+    // Tutorial bubbles
+    tutorialStep > 0 && React.createElement('div', {
+      className: 'tutorial-overlay'
+    },
+      // Step 1: New Chat button
+      tutorialStep === 1 && tutorialPositions.step1 && React.createElement('div', {
+        className: 'tutorial-bubble tutorial-bubble-md',
+        style: {
+          left: `${tutorialPositions.step1.left}px`,
+          top: `${tutorialPositions.step1.top}px`
+        }
+      },
+        'Create a new chat',
+        // Arrow pointing to New Chat button
+        React.createElement('div', {
+          className: 'tutorial-arrow-left-border tutorial-arrow-left-top'
+        }),
+        React.createElement('div', {
+          className: 'tutorial-arrow-left-fill tutorial-arrow-left-top'
+        }),
+        // Next button
+        React.createElement('button', {
+          onClick: handleTutorialClick,
+          className: 'tutorial-button'
+        }, 'Next')
+      ),
+
+      // Step 2: Chat History
+      tutorialStep === 2 && tutorialPositions.step2 && React.createElement('div', {
+        className: 'tutorial-bubble tutorial-bubble-md',
+        style: {
+          left: `${tutorialPositions.step2.left}px`,
+          top: `${tutorialPositions.step2.top}px`
+        }
+      },
+        'In this tab you can see all your previous conversations and save your favorites',
+        React.createElement('div', {
+          className: 'tutorial-arrow-left-border tutorial-arrow-left-mid'
+        }),
+        React.createElement('div', {
+          className: 'tutorial-arrow-left-fill tutorial-arrow-left-mid'
+        }),
+        React.createElement('button', {
+          onClick: handleTutorialClick,
+          className: 'tutorial-button'
+        }, 'Next')
+      ),
+
+      // Step 3: My Documents
+      tutorialStep === 3 && tutorialPositions.step3 && React.createElement('div', {
+        className: 'tutorial-bubble tutorial-bubble-lg',
+        style: {
+          left: `${tutorialPositions.step3.left}px`,
+          top: `${tutorialPositions.step3.top}px`
+        }
+      },
+        'In the document section you can add documents for your projects. Documents can be added to the user input with drag and drop or by pressing the +. This will add the documents context to the AI. You can add up to 5 documents to a single chat',
+        React.createElement('div', {
+          className: 'tutorial-arrow-left-border tutorial-arrow-left-mid'
+        }),
+        React.createElement('div', {
+          className: 'tutorial-arrow-left-fill tutorial-arrow-left-mid'
+        }),
+        React.createElement('button', {
+          onClick: handleTutorialClick,
+          className: 'tutorial-button'
+        }, 'Next')
+      ),
+
+      // Step 4: Sources & Citations
+      tutorialStep === 4 && tutorialPositions.step4 && React.createElement('div', {
+        className: 'tutorial-bubble tutorial-bubble-lg',
+        style: {
+          left: `${tutorialPositions.step4.left}px`,
+          top: `${tutorialPositions.step4.top}px`
+        }
+      },
+        'View the sources and citations that informed the AI response. See relevant legal documents, case law, and regulations.',
+        React.createElement('div', {
+          className: 'tutorial-arrow-left-border tutorial-arrow-left-mid'
+        }),
+        React.createElement('div', {
+          className: 'tutorial-arrow-left-fill tutorial-arrow-left-mid'
+        }),
+        React.createElement('button', {
+          onClick: handleTutorialClick,
+          className: 'tutorial-button'
+        }, 'Next')
+      ),
+
+      // Step 5: Jurisdiction filter
+      tutorialStep === 5 && tutorialPositions.step5 && React.createElement('div', {
+        className: 'tutorial-bubble tutorial-bubble-xl',
+        style: {
+          left: `${tutorialPositions.step5.left}px`,
+          bottom: `${tutorialPositions.step5.bottom}px`
+        }
+      },
+        'Select jurisdictions using the flag icons. Click a flag to remove it, or use (+) to add more. Each jurisdiction covers legislation, case law, and more.',
+        React.createElement('div', {
+          className: 'tutorial-arrow-bottom-border tutorial-arrow-bottom-left'
+        }),
+        React.createElement('div', {
+          className: 'tutorial-arrow-bottom-fill tutorial-arrow-bottom-left'
+        }),
+        React.createElement('button', {
+          onClick: handleTutorialClick,
+          className: 'tutorial-button'
+        }, 'Next')
+      ),
+
+      // Step 6: In-force filter
+      tutorialStep === 6 && tutorialPositions.step6 && React.createElement('div', {
+        className: 'tutorial-bubble tutorial-bubble-lg',
+        style: {
+          left: `${tutorialPositions.step6.left}px`,
+          bottom: `${tutorialPositions.step6.bottom}px`
+        }
+      },
+        'Filter by legal status: Current (laws in force), All (everything), or Historic (repealed laws).',
+        React.createElement('div', {
+          className: 'tutorial-arrow-bottom-border tutorial-arrow-bottom-center'
+        }),
+        React.createElement('div', {
+          className: 'tutorial-arrow-bottom-fill tutorial-arrow-bottom-center'
+        }),
+        React.createElement('button', {
+          onClick: handleTutorialClick,
+          className: 'tutorial-button'
+        }, 'Next')
+      ),
+
+      // Step 7: Send button
+      tutorialStep === 7 && tutorialPositions.step7 && React.createElement('div', {
+        className: 'tutorial-bubble tutorial-bubble-sm',
+        style: {
+          right: `${tutorialPositions.step7.right}px`,
+          bottom: `${tutorialPositions.step7.bottom}px`
+        }
+      },
+        'Send a message to the AI.',
+        React.createElement('div', {
+          className: 'tutorial-arrow-bottom-border tutorial-arrow-bottom-right'
+        }),
+        React.createElement('div', {
+          className: 'tutorial-arrow-bottom-fill tutorial-arrow-bottom-right'
+        }),
+        React.createElement('button', {
+          onClick: handleTutorialClick,
+          className: 'tutorial-button'
+        }, 'Finish')
+      )
+    )
+  );
+}
+
+// Privacy Policy Modal Component
+
+// Terms of Service Modal Component
+
+// Root App Component
+function App() {
+  return React.createElement(window.ErrorBoundary, null,
+    React.createElement(window.AuthProvider, null,
+      React.createElement(MainApp)
+    )
+  );
+}
+
+// Render the app
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(React.createElement(App));

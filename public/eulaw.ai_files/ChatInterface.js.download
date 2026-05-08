@@ -1,0 +1,951 @@
+/**
+ * Chat Interface Component
+ * Main chat interface with message display, streaming, and input handling
+ */
+
+// Get React hooks from window (loaded via CDN)
+
+// Get API service from window (loaded from services/api.js)
+
+// Get components from window (ChatInput loaded from components/ChatInput.js)
+// Note: ChatMessage and TypingIndicator are still in app.js and loaded before this
+
+// Main Chat Interface Component
+const ChatInterface = ({ sessionId, onNewSession, onSourcesUpdate, onArtifactsUpdate, onMessageComplete, onAddNewSession, mobileNavComponent, onStreamingChange, onIncrementResponseCounter, freeTierStatus, onFreeTierExhausted, onSaveToLibrary, onLibraryDocumentAttach, onDocumentUploaded, inForceFilter, onInForceFilterChange, onOpenSourcesPanel }) => {
+  const [messages, setMessages] = React.useState([]);
+  const [loading, setLoading] = React.useState(false);
+  const [streamingMessage, setStreamingMessage] = React.useState('');
+  const [isStreaming, setIsStreaming] = React.useState(false);
+  const messagesEndRef = React.useRef(null);
+  const messagesContainerRef = React.useRef(null);
+  const [previousSessionId, setPreviousSessionId] = React.useState(null);
+  const currentSessionRef = React.useRef(sessionId);
+  const [showScrollButton, setShowScrollButton] = React.useState(false);
+
+  // Track last scroll position for direction detection
+  const scrollAnimationFrame = React.useRef(null);
+
+  // Flag to distinguish "user clicked existing chat" vs "new session created from sending message"
+  const isCreatingNewSession = React.useRef(false);
+
+  // AbortController for cancelling streaming responses
+  const abortControllerRef = React.useRef(null);
+
+  // Track if we're loading an existing chat (to hide AI disclosure)
+  const [isLoadingExistingChat, setIsLoadingExistingChat] = React.useState(false);
+
+  // Drag and drop state for file attachments
+  const [isDraggingOver, setIsDraggingOver] = React.useState(false);
+  const [droppedFiles, setDroppedFiles] = React.useState([]);
+  const dragCounterRef = React.useRef(0);
+
+  // Extended search state (triggered by backend when implicit filtering times out)
+  const [extendedSearch, setExtendedSearch] = React.useState(false);
+  // Dynamic status text from backend pipeline phases
+  const [statusText, setStatusText] = React.useState(null);
+
+  // Welcome state only on initial app load, not on "New Chat" clicks
+  const [showWelcome, setShowWelcome] = React.useState(true);
+
+  // Expose library document attach function to parent
+  React.useEffect(() => {
+    if (onLibraryDocumentAttach) {
+      onLibraryDocumentAttach((doc) => {
+        const libraryFile = {
+          itemId: doc.itemId,
+          name: doc.name,
+          size: doc.size,
+          format: doc.format,
+          isLibraryDocument: true
+        };
+        setDroppedFiles(prev => [...prev, libraryFile]);
+      });
+    }
+  }, [onLibraryDocumentAttach]);
+
+  // Detect if device is mobile/touch device
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
+                   ('ontouchstart' in window) ||
+                   (navigator.maxTouchPoints > 0);
+
+  // Check if user is at bottom of chat (only for button visibility)
+  const isAtBottom = React.useCallback(() => {
+    if (!messagesContainerRef.current) return true;
+    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+    const threshold = 50; // Small threshold for scroll detection
+    return scrollHeight - scrollTop - clientHeight < threshold;
+  }, []);
+
+  // Handle scroll to show/hide button
+  const handleScroll = React.useCallback(() => {
+    if (messagesContainerRef.current) {
+      setShowScrollButton(!isAtBottom());
+    }
+  }, [isAtBottom]);
+
+  // Simplified scroll-to-bottom function
+  const scrollToBottom = React.useCallback((instant = false) => {
+    if (messagesContainerRef.current) {
+      const container = messagesContainerRef.current;
+
+      // Cancel any pending scroll animation
+      if (scrollAnimationFrame.current) {
+        cancelAnimationFrame(scrollAnimationFrame.current);
+      }
+
+      if (instant || isMobile) {
+        // Always use instant scroll on mobile for better performance
+        container.scrollTop = container.scrollHeight;
+      } else {
+        // Smooth scroll for desktop only
+        scrollAnimationFrame.current = requestAnimationFrame(() => {
+          container.scrollTo({
+            top: container.scrollHeight,
+            behavior: 'smooth'
+          });
+        });
+      }
+    }
+  }, [isMobile]);
+
+  // Drag and drop handlers for file attachments
+  const handleDragEnter = React.useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDraggingOver(true);
+    }
+  }, []);
+
+  const handleDragLeave = React.useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) {
+      setIsDraggingOver(false);
+    }
+  }, []);
+
+  const handleDragOver = React.useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = React.useCallback(async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDraggingOver(false);
+
+    // Check if this is a library document drop
+    const jsonData = e.dataTransfer.getData('application/json');
+    if (jsonData) {
+      try {
+        const data = JSON.parse(jsonData);
+        if (data.type === 'library-document') {
+          // Create a special file-like object for library documents
+          const libraryFile = {
+            name: data.name,
+            size: data.size,
+            type: data.format === 'pdf' ? 'application/pdf' :
+                  data.format === 'docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' :
+                  data.format === 'doc' ? 'application/msword' :
+                  data.format === 'txt' ? 'text/plain' :
+                  data.format === 'html' ? 'text/html' :
+                  data.format === 'md' ? 'text/markdown' :
+                  data.format === 'rtf' ? 'application/rtf' :
+                  'application/octet-stream',
+            isLibraryDocument: true,
+            itemId: data.itemId,
+            format: data.format
+          };
+          console.log('Library document dropped:', libraryFile);
+          setDroppedFiles([libraryFile]);
+          return;
+        }
+      } catch (err) {
+        console.log('Not a library document drop:', err);
+      }
+    }
+
+    // Regular file drop from desktop — pass raw files to ChatInput for upload with spinner
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      setDroppedFiles(Array.from(files));
+    }
+  }, []);
+
+  const handleExternalFilesProcessed = React.useCallback(() => {
+    setDroppedFiles([]);
+  }, []);
+
+  // loadChatMessages must be defined BEFORE the React.useEffect that calls it
+  const loadChatMessages = React.useCallback(async (targetSessionId) => {
+    try {
+      console.log('Loading chat messages for sessionId:', targetSessionId);
+      setLoading(true);
+
+      // Clear existing citations when starting to load a new chat
+      onSourcesUpdate([], []);
+
+      const chatData = await window.apiService.getSpecificChat(targetSessionId);
+      console.log('Chat data received:', chatData);
+      
+      if (chatData && chatData.messages) {
+        console.log('Found messages:', chatData.messages.length);
+
+        // DEBUG: Log all raw messages
+        console.log('🔍 RAW MESSAGES:', JSON.stringify(chatData.messages, null, 2));
+
+        // Convert the API response to the format expected by the UI
+        // Filter out citation records and system messages
+        const formattedMessages = chatData.messages
+          .filter(msg => {
+            const keep = msg.sender !== 'system' && !msg.isCitationRecord;
+            console.log(`🔍 Filter message: sender=${msg.sender}, isCitationRecord=${msg.isCitationRecord}, keep=${keep}, hasMessage=${!!msg.message}`);
+            return keep;
+          })
+          .map((msg, index) => {
+            const formatted = {
+              message: msg.message,
+              role: msg.sender,
+              id: msg.timestamp || Date.now() + index,
+              timestamp: msg.timestamp,
+              files: msg.files || (msg.file ? [msg.file] : null),
+              citations: msg.citations || msg.sources || [],
+              artifacts: msg.artifacts || undefined
+            };
+            console.log(`🔍 Formatted message ${index}:`, formatted);
+            return formatted;
+          });
+        console.log('Formatted messages:', formattedMessages.length, 'displayable messages');
+        setMessages(formattedMessages);
+        // If no messages to display, this is a new chat - show AI disclosure
+        if (formattedMessages.length === 0) {
+          setIsLoadingExistingChat(false);
+        }
+
+        // Scroll to bottom immediately - container is hidden during loading
+        requestAnimationFrame(() => {
+          scrollToBottom(true);
+        });
+      } else {
+        console.log('No messages found in chat data');
+        // This is a new chat (no history), show the AI disclosure
+        setIsLoadingExistingChat(false);
+      }
+      
+      // Try to load citations from citation records or AI messages
+      if (chatData && chatData.messages) {
+        console.log('🔍 DEBUGGING CITATIONS - Total messages received:', chatData.messages.length);
+        
+        // Log all messages for debugging
+        chatData.messages.forEach((msg, i) => {
+          console.log(`Message ${i}: sender=${msg.sender}, isCitationRecord=${msg.isCitationRecord}, hasCitations=${!!msg.citations}`);
+          if (msg.isCitationRecord || msg.sender === 'system') {
+            console.log(`  → Citation record found: ${JSON.stringify(msg, null, 2).substring(0, 500)}...`);
+          }
+        });
+        
+        // Find ALL citation records (not just the first one)
+        const citationRecords = chatData.messages.filter(msg =>
+          msg.isCitationRecord === true && msg.sender === 'system' && msg.citations
+        );
+        
+        console.log('🔍 Citation record search result:', citationRecords.length > 0 ? `FOUND ${citationRecords.length} records` : 'NOT FOUND');
+        
+        if (citationRecords.length > 0) {
+          // Group citations by response (each citation record = one AI response)
+          // Process citation records in chronological order (oldest first)
+          citationRecords.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+          // Match citation records to AI messages by timestamp to get correct responseNumber.
+          // Citation records are saved just BEFORE their AI message completes, so the
+          // citation timestamp is slightly earlier than its matching AI message timestamp.
+          // findIndex(ai.ts >= record.ts) returns the FIRST AI whose timestamp is at or
+          // after the citation — that IS the matching AI, not the one before it.
+          const aiMessages = chatData.messages.filter(msg => msg.sender === 'ai');
+          const responseGroups = citationRecords.map((record) => {
+            let aiIndex = aiMessages.findIndex(ai => ai.timestamp >= record.timestamp);
+            // If no AI message is >= the citation timestamp, the citation belongs to the
+            // last AI message (e.g., clock skew made AI ts slightly earlier than citation).
+            if (aiIndex === -1) aiIndex = Math.max(0, aiMessages.length - 1);
+            // responseNumber is 1-indexed position in the AI-messages-only list
+            const responseNumber = aiIndex + 1;
+            console.log(`🔍 Citation record: ${record.citations?.length || 0} citations from ${record.timestamp} → responseNumber ${responseNumber}`);
+            return {
+              responseNumber,
+              sources: record.citations || []
+            };
+          });
+
+          console.log('✅ LOADING SAVED CITATIONS FOR SESSION:', targetSessionId, 'Total groups:', responseGroups.length);
+          responseGroups.forEach((group) => {
+            console.log(`Response ${group.responseNumber}: ${group.sources.length} citations`);
+          });
+          console.log('📤 Calling onSourcesUpdate with grouped citations');
+          onSourcesUpdate(responseGroups, [], false, null, true); // Pass grouped=true flag
+        } else {
+          // Fallback: Find ALL AI messages with citations and group them
+          const aiMessages = chatData.messages.filter(msg => msg.sender === 'ai');
+          const messagesWithCitations = aiMessages.filter(msg =>
+            (msg.sources && msg.sources.length > 0) ||
+            (msg.citations && msg.citations.length > 0)
+          );
+
+          if (messagesWithCitations.length > 0) {
+            console.log('Found', messagesWithCitations.length, 'AI messages with citations');
+            const responseGroups = messagesWithCitations.map((msg) => {
+              // Find position among ALL AI messages for correct responseNumber
+              const aiIdx = aiMessages.indexOf(msg);
+              return {
+                responseNumber: aiIdx + 1,
+                sources: msg.citations || msg.sources || []
+              };
+            });
+            onSourcesUpdate(responseGroups, [], false, null, true);
+          } else {
+            console.log('No citations found in chat history - sources not available for this chat');
+          }
+        }
+
+        // Load artifacts from saved messages (if any) and push to parent state
+        if (onArtifactsUpdate) {
+          const aiMessagesAll = chatData.messages.filter(msg => msg.sender === 'ai');
+          aiMessagesAll.forEach((msg, idx) => {
+            if (Array.isArray(msg.artifacts) && msg.artifacts.length > 0) {
+              onArtifactsUpdate(msg.artifacts, idx + 1);
+            }
+          });
+        }
+      }
+      
+    } catch (error) {
+      console.error('Error loading chat messages:', error);
+      // Don't show error to user, just keep empty messages
+    } finally {
+      setLoading(false);
+      // Always reset isLoadingExistingChat so welcome message can show for empty chats
+      setIsLoadingExistingChat(false);
+    }
+  }, [onSourcesUpdate, scrollToBottom]);
+
+  // Load messages when sessionId changes - AFTER loadChatMessages is defined
+  React.useEffect(() => {
+    // Update current session reference
+    currentSessionRef.current = sessionId;
+
+    // Load messages when switching to a different existing session
+    // This includes the first click after login (when previousSessionId is null)
+    if (sessionId && sessionId !== previousSessionId) {
+      if (isCreatingNewSession.current) {
+        // New session created from sending message - don't clear/load, message is already in state
+        isCreatingNewSession.current = false;
+      } else {
+        // User clicked existing chat - load its messages
+        setIsLoadingExistingChat(true);
+        setMessages([]);
+        loadChatMessages(sessionId);
+      }
+    } else if (!sessionId && previousSessionId) {
+      // Clear messages when starting a new chat (New Chat button clicked)
+      setIsLoadingExistingChat(false);
+      setMessages([]);
+    }
+    setPreviousSessionId(sessionId);
+  }, [sessionId, previousSessionId, loadChatMessages]);
+
+  // Cleanup animation frame on unmount
+  React.useEffect(() => {
+    return () => {
+      if (scrollAnimationFrame.current) {
+        cancelAnimationFrame(scrollAnimationFrame.current);
+      }
+    };
+  }, []);
+
+  // Check if scroll button should be visible when messages change or container size changes
+  React.useEffect(() => {
+    const checkScrollButton = () => {
+      if (messagesContainerRef.current) {
+        const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+        const canScroll = scrollHeight > clientHeight;
+        const atBottom = scrollHeight - scrollTop - clientHeight < 50;
+
+        // Show button if there's content to scroll AND user is not at bottom
+        setShowScrollButton(canScroll && !atBottom);
+      }
+    };
+
+    // Check immediately after DOM updates using requestAnimationFrame
+    const rafId = requestAnimationFrame(() => {
+      checkScrollButton();
+    });
+
+    // Set up MutationObserver to detect content changes in real-time
+    const observer = new MutationObserver(() => {
+      requestAnimationFrame(checkScrollButton);
+    });
+
+    if (messagesContainerRef.current) {
+      observer.observe(messagesContainerRef.current, {
+        childList: true,
+        subtree: true,
+        characterData: true
+      });
+    }
+
+    // Also check on window resize (in case chat area size changes)
+    window.addEventListener('resize', checkScrollButton);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      observer.disconnect();
+      window.removeEventListener('resize', checkScrollButton);
+    };
+  }, [messages, isStreaming, streamingMessage]);
+
+  // Track active jurisdictions for loading indicator
+  const [activeJurisdictions, setActiveJurisdictions] = React.useState(null);
+
+  // Store reader reference for cancellation
+  const readerRef = React.useRef(null);
+
+  // Handle stop/cancel generation
+  const handleStopGeneration = React.useCallback(() => {
+    console.log('Stop generation requested');
+    if (readerRef.current) {
+      readerRef.current.cancel('User cancelled');
+      readerRef.current = null;
+    }
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+  }, []);
+
+  const handleSendMessage = async (messageText, files = [], filters = null) => {
+    // Dismiss welcome state on first message
+    if (showWelcome) setShowWelcome(false);
+
+    // Normalize files to array for backward compatibility
+    const filesArray = Array.isArray(files) ? files : (files ? [files] : []);
+
+    // If no filters passed (e.g. follow-up question click), resolve from localStorage
+    if (!filters) {
+      try {
+        const saved = JSON.parse(localStorage.getItem('jurisdictionFilter') || '{}');
+        const jurisdictions = Object.entries(saved).filter(([_, v]) => v).map(([k]) => k);
+        if (jurisdictions.includes('EU') && !jurisdictions.includes('INTL')) jurisdictions.push('INTL');
+        if (jurisdictions.length > 0) {
+          filters = { jurisdiction: jurisdictions, documentFamily: [], inForce: inForceFilter || 0 };
+        }
+      } catch { /* use null filters */ }
+    }
+
+    if (!messageText.trim()) {
+      console.log('Message text required, returning');
+      return;
+    }
+
+    // Check if free tier is exhausted before processing
+    if (freeTierStatus && freeTierStatus.remaining === 0) {
+      console.log('Free tier exhausted, showing subscription overlay');
+      onFreeTierExhausted?.();
+      return;
+    }
+
+    console.log('handleSendMessage called with:', messageText, 'and files:', filesArray.map(f => f.name), 'and filters:', filters);
+    console.log('Current sessionId:', sessionId);
+
+    // Generate a sessionId if we don't have one (user didn't click "New Chat" first)
+    let currentSessionId = sessionId;
+    if (!currentSessionId) {
+      currentSessionId = crypto.randomUUID();
+      isCreatingNewSession.current = true; // Prevent React.useEffect from clearing message
+      onNewSession(currentSessionId); // Update parent component with new sessionId
+      console.log('Generated new sessionId:', currentSessionId);
+    }
+
+    try {
+      // Create AbortController for this request so stop button can cancel it
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+
+      setLoading(true);
+      setIsStreaming(true); onStreamingChange?.(true);
+      setStreamingMessage('');
+      setExtendedSearch(false); // Reset extended search state for new message
+      setStatusText(null); // Reset dynamic status text
+      // Store active jurisdictions for the loading indicator
+      setActiveJurisdictions(filters?.jurisdiction || ['EU', 'DK', 'INTL']);
+      console.log('Set loading states, calling API...');
+
+      // Increment response counter for this new AI response
+      const currentResponseNum = onIncrementResponseCounter ? onIncrementResponseCounter() : 1;
+      console.log('Starting response number:', currentResponseNum);
+
+      // Files are pre-uploaded by ChatInput — just use them as-is
+      // (ChatInput uploads to Document Library immediately on attach and passes resolved files with itemIds)
+      let resolvedFiles = filesArray;
+      if (resolvedFiles.length > 0) {
+        // Refresh document library panel if open
+        if (onDocumentUploaded) onDocumentUploaded();
+      }
+
+      // Create user message including files info if present
+      const userMessage = {
+        message: messageText || '',
+        role: 'user',
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        files: resolvedFiles.length > 0 ? resolvedFiles.map(f => ({
+          name: f.name,
+          size: f.size,
+          itemId: f.itemId
+        })) : null
+      };
+      setMessages(prev => [...prev, userMessage]);
+
+      // Scroll to bottom after user message is added
+      requestAnimationFrame(() => {
+        scrollToBottom(true);
+      });
+
+      const response = await window.apiService.sendMessage(messageText, currentSessionId, resolvedFiles, filters, { signal: abortController.signal });
+      
+      console.log('Response received:', {
+        status: response.status,
+        headers: Object.fromEntries(response.headers.entries()),
+        body: response.body ? 'Present' : 'Missing'
+      });
+      
+      if (!response.body) throw new Error('No response body received');
+
+      const reader = response.body.getReader();
+      readerRef.current = reader; // Store reference for cancellation
+      const decoder = new TextDecoder();
+      let assistantMessage = '';
+      let currentSources = [];
+      let currentCitations = [];
+      let currentFollowUpQuestions = [];
+      let currentArtifacts = [];
+      let sseBuffer = ''; // Buffer for incomplete SSE messages
+
+      // Rotating status messages for long-running operations.
+      // Cycles every 6 seconds so the user knows the system is still working.
+      // Document uploads get a separate set that mentions the attachment.
+      const STATUS_MESSAGES = filesArray.length > 0
+        ? [
+            'Reading your document...',
+            'Checking attachment against legal clauses...',
+            'Searching legal database...',
+            'Cross-referencing provisions...',
+            'Preparing analysis — this can take a moment...'
+          ]
+        : [
+            'Understanding your question...',
+            'Searching legal database...',
+            'Analysing legal sources...',
+            'Cross-referencing provisions...',
+            'Preparing response...'
+          ];
+      let statusRotationIdx = 0;
+      let statusRotationHandle = null;
+      const startStatusRotation = () => {
+        if (statusRotationHandle) return; // already running
+        statusRotationIdx = 0;
+        setStatusText(STATUS_MESSAGES[0]);
+        statusRotationHandle = setInterval(() => {
+          statusRotationIdx = (statusRotationIdx + 1) % STATUS_MESSAGES.length;
+          setStatusText(STATUS_MESSAGES[statusRotationIdx]);
+        }, 6000);
+      };
+      const stopStatusRotation = () => {
+        if (statusRotationHandle) { clearInterval(statusRotationHandle); statusRotationHandle = null; }
+      };
+      // Start rotation immediately — it will be overridden by specific tool_start events
+      startStatusRotation();
+
+      // Streaming timeout protection - 180 seconds without data
+      // Tool calls (legal_lookup) can take 30s+ each, and Sonnet generation
+      // after tool results can take 60s+ for complex analyses
+      const STREAM_TIMEOUT = 180000;
+      let streamTimeoutHandle = null;
+      let streamTimedOut = false;
+
+      const resetStreamTimeout = () => {
+        if (streamTimeoutHandle) clearTimeout(streamTimeoutHandle);
+        streamTimeoutHandle = setTimeout(() => {
+          console.error('Stream timeout - no data received for 60 seconds');
+          streamTimedOut = true; // Set flag instead of throwing
+          reader.cancel('Stream timeout');
+        }, STREAM_TIMEOUT);
+      };
+
+      resetStreamTimeout();
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          // Check if timeout occurred
+          if (streamTimedOut) {
+            throw new Error('Stream timeout - no data received. Please try again.');
+          }
+
+          // Reset timeout on each data chunk received
+          resetStreamTimeout();
+
+          const chunk = decoder.decode(value, { stream: true });
+          // console.log('Raw chunk received:', chunk);
+
+          // Append to buffer and process complete messages
+          sseBuffer += chunk;
+
+          // SSE messages are separated by double newlines
+          const messages = sseBuffer.split('\n\n');
+          // Keep the last potentially incomplete message in buffer
+          sseBuffer = messages.pop() || '';
+
+          for (const message of messages) {
+            const lines = message.split('\n');
+            // Collect all data lines (for multi-line data fields)
+            let dataContent = '';
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                dataContent += line.slice(6);
+              } else if (line.startsWith('data:')) {
+                dataContent += line.slice(5);
+              }
+            }
+
+            if (!dataContent) continue;
+            dataContent = dataContent.trim();
+            if (dataContent === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(dataContent);
+
+              if (parsed.type === 'start') {
+                // Update current sessionId if this is a new chat
+                if (parsed.isNewChat && parsed.sessionId && onNewSession) {
+                  onNewSession(parsed.sessionId);
+                }
+                // Update chat title if this was a new chat (backend will provide generated title)
+                if (parsed.isNewChat && parsed.title && onAddNewSession) {
+                  // Update the session title in chat history (replace default "New Chat")
+                  onAddNewSession(parsed.sessionId, parsed.title);
+                }
+              } else if (parsed.type === 'chunk' && parsed.text) {
+                if (!assistantMessage) { stopStatusRotation(); setStatusText('Generating response...'); }
+                assistantMessage += parsed.text;
+                setStreamingMessage(assistantMessage);
+                // console.log('Text chunk received, total length:', assistantMessage.length);
+              } else if (parsed.type === 'citations' && parsed.sources) {
+                // New format: citations event contains enriched sources with metadata
+                console.log('[citations]', parsed.sources.length, 'sources', parsed.sources);
+                currentSources = parsed.sources;
+                if (onSourcesUpdate) {
+                  onSourcesUpdate(currentSources, [], true, currentResponseNum); // Append new sources for this response
+                }
+              } else if (parsed.type === 'sources' && parsed.sources) {
+                console.log('[sources]', parsed.sources.length, 'sources', parsed.sources);
+                currentSources = parsed.sources;
+                // Capture inline citations with span positions for inline markers
+                if (parsed.inlineCitations && parsed.inlineCitations.length > 0) {
+                  currentCitations = parsed.inlineCitations;
+                }
+                if (onSourcesUpdate) {
+                  onSourcesUpdate(currentSources, currentCitations, true, currentResponseNum, false, parsed.queryLanguage || null);
+                }
+              } else if (parsed.type === 'metadata' && parsed.freeTier) {
+                // Free tier metadata from chat Lambda
+                if (window.updateFreeTierStatus) {
+                  window.updateFreeTierStatus(parsed.freeTier);
+                }
+              } else if (parsed.type === 'followUpQuestions' && parsed.questions) {
+                currentFollowUpQuestions = parsed.questions;
+              } else if (parsed.type === 'artifact' && parsed.artifact) {
+                // Generated document artifact from generate_document tool.
+                // Renders as a clickable pill below the AI response; clicking
+                // opens the sources panel with the full content expanded.
+                console.log('[artifact]', parsed.artifact.title, parsed.artifact.artifactId);
+                currentArtifacts.push(parsed.artifact);
+                if (onArtifactsUpdate) {
+                  onArtifactsUpdate([parsed.artifact], currentResponseNum);
+                }
+              } else if (parsed.type === 'tool_start') {
+                // Tool execution started — update status text
+                console.log('[tool_start]', parsed.name, parsed.toolUseId);
+                stopStatusRotation();
+                const toolNames = {
+                  legal_lookup: 'Searching legal database...',
+                  conversation_history_lookup: 'Checking conversation history...',
+                  analyze_document: 'Analyzing document...',
+                  draft_contract: 'Searching for contract templates...',
+                  compare_sections: 'Comparing legal sections...',
+                  extract_section: 'Extracting section...',
+                  generate_document: 'Generating document...',
+                  edit_document: 'Editing document...',
+                };
+                setStatusText(toolNames[parsed.name] || 'Processing...');
+              } else if (parsed.type === 'debug') {
+                // Pipeline debug events — structured console output
+                const stage = parsed.stage;
+                const styles = {
+                  query_expansion: 'color: #4CAF50; font-weight: bold',
+                  retrieval_complete: 'color: #2196F3; font-weight: bold',
+                  pipeline_complete: 'color: #FF9800; font-weight: bold',
+                };
+                const style = styles[stage] || 'color: #9E9E9E';
+
+                if (stage === 'query_expansion') {
+                  console.groupCollapsed(`%c[expansion] ${parsed.queryLanguage} | ${parsed.searchScope} | section:${parsed.sectionExtraction}`, style);
+                  console.log('Expanded query:', parsed.expandedQuery);
+                  console.log('Identifiers:', parsed.identifiers);
+                  console.log('Reformulations:', parsed.reformulations);
+                  console.log('Topic:', parsed.topicTag);
+                  console.groupEnd();
+                } else if (stage === 'retrieval_complete') {
+                  const conf = parsed.retrievalConfidence;
+                  const confColor = conf === 'HIGH' ? '#4CAF50' : conf === 'MEDIUM' ? '#FF9800' : '#f44336';
+                  console.groupCollapsed(`%c[retrieval] ${parsed.chunkCount} chunks | confidence: %c${conf}%c | fallback: ${parsed.usedFallback}`, style, `color: ${confColor}; font-weight: bold`, style);
+                  if (parsed.sources) {
+                    console.table(parsed.sources.map(s => ({ title: s.title, type: s.family })));
+                  }
+                  console.groupEnd();
+                } else if (stage === 'pipeline_complete') {
+                  console.groupCollapsed(`%c[pipeline] ${parsed.toolCallCount} tool calls | ${parsed.citations} citations | ${parsed.totalTokens} tokens`, style);
+                  console.log('Language:', parsed.queryLanguage);
+                  console.log('Topic:', parsed.topicTag);
+                  console.log('Confidence:', parsed.retrievalConfidence);
+                  console.log('Response length:', parsed.responseLength, 'chars');
+                  if (parsed.tokenUsage) {
+                    console.table(parsed.tokenUsage);
+                  }
+                  console.groupEnd();
+                } else {
+                  console.log(`%c[debug:${stage}]`, style, parsed);
+                }
+              } else if (parsed.type === 'status' && parsed.text) {
+                // Dynamic status text from backend pipeline phases
+                setStatusText(parsed.text);
+              } else if (parsed.type === 'extended_search') {
+                // Backend signaled that implicit filtering timed out/failed
+                // Switch UI to show "Extended search" instead of "Searching"
+                setExtendedSearch(true);
+              } else if (parsed.type === 'done') {
+              } else if (parsed.type === 'error' && parsed.error) {
+                // Check for payment required (free tier exhausted)
+                if (parsed.error.code === 'PAYMENT_REQUIRED') {
+                  if (parsed.error.freeTier && window.updateFreeTierStatus) {
+                    window.updateFreeTierStatus(parsed.error.freeTier);
+                  }
+                }
+                throw new Error(parsed.error.message || parsed.error);
+              } else if (parsed.error) {
+                throw new Error(parsed.error);
+              }
+            } catch (parseError) {
+              console.warn('SSE parse error (this is usually normal):', parseError.message, 'Data:', dataContent);
+              // Continue processing other chunks - partial JSON is common in streaming
+            }
+          }
+        }
+      } finally {
+        // Clear stream timeout, status rotation, and reader reference
+        if (streamTimeoutHandle) clearTimeout(streamTimeoutHandle);
+        stopStatusRotation();
+        readerRef.current = null;
+        reader.releaseLock();
+      }
+
+      if (assistantMessage) {
+        const finalAssistantMessage = {
+          message: assistantMessage,
+          role: 'assistant',
+          id: Date.now() + 1,
+          timestamp: new Date().toISOString(),
+          citations: currentSources,
+          inlineCitations: currentCitations, // Include inline citations with span positions
+          followUpQuestions: currentFollowUpQuestions.length > 0 ? currentFollowUpQuestions : undefined,
+          artifacts: currentArtifacts.length > 0 ? currentArtifacts : undefined
+        };
+        setMessages(prev => [...prev, finalAssistantMessage]);
+        
+        // Notify parent that message is complete for gentle refresh
+        if (onMessageComplete) {
+          setTimeout(() => onMessageComplete(), 500);
+        }
+      }
+
+    } catch (error) {
+      console.error('Error sending message:', error);
+
+      // Check if this was a user cancellation
+      const wasCancelled = error.message === 'User cancelled' || error.name === 'AbortError';
+
+      // Check if we got any response before the error/cancellation
+      if (assistantMessage.trim()) {
+        console.log('Partial response received, showing it:', assistantMessage.length, 'characters');
+        const partialMessage = {
+          message: assistantMessage + (wasCancelled ? '\n\n[Response stopped by user]' : '\n\n[Response was interrupted]'),
+          role: 'assistant',
+          id: Date.now() + 1,
+          timestamp: new Date().toISOString()
+        };
+        setMessages(prev => [...prev, partialMessage]);
+      } else if (!wasCancelled) {
+        // Only show error message if not cancelled and no partial response
+        const errorMessage = {
+          message: `Sorry, I encountered an error processing your request: ${error.message}. Please try again.`,
+          role: 'assistant',
+          error: true,
+          id: Date.now() + 1,
+          timestamp: new Date().toISOString()
+        };
+        setMessages(prev => [...prev, errorMessage]);
+      }
+      // If cancelled with no response, just clean up silently
+    } finally {
+      abortControllerRef.current = null;
+      setLoading(false);
+      setIsStreaming(false); onStreamingChange?.(false);
+      setStreamingMessage('');
+      setActiveJurisdictions(null);
+    }
+  };
+
+  return React.createElement('div', {
+    className: `chat-container${isDraggingOver ? ' drag-over' : ''}${showWelcome && messages.length === 0 && !isStreaming && !isLoadingExistingChat && !loading ? ' welcome-state' : ''}`,
+    onDragEnter: handleDragEnter,
+    onDragLeave: handleDragLeave,
+    onDragOver: handleDragOver,
+    onDrop: handleDrop
+  },
+    // Drop zone overlay
+    isDraggingOver && React.createElement('div', {
+      className: 'drop-zone-overlay'
+    },
+      React.createElement('div', {
+        className: 'drop-zone-content'
+      },
+        React.createElement('i', {
+          className: 'fas fa-cloud-upload-alt drop-zone-icon'
+        }),
+        React.createElement('span', {
+          className: 'drop-zone-text'
+        }, 'Drop file to attach')
+      )
+    ),
+    // Free trial counter at top middle
+    freeTierStatus && React.createElement('button', {
+      onClick: onFreeTierExhausted,
+      className: 'free-tier-counter'
+    }, freeTierStatus.remaining === 0 ? 'Upgrade' : `Free trial ${freeTierStatus.used}/${freeTierStatus.limit}`),
+    // Welcome greeting - shown centered above input only on initial load
+    (showWelcome && messages.length === 0 && !isStreaming && !isLoadingExistingChat && !loading) && React.createElement('div', {
+      className: 'welcome-greeting'
+    },
+      React.createElement('h1', { className: 'welcome-title' }, 'How can I help you?')
+    ),
+
+    // Messages area
+    React.createElement('div', {
+      ref: messagesContainerRef,
+      className: 'chat-messages',
+      onScroll: handleScroll,
+      style: {
+        // Only hide during initial chat history load, not during streaming
+        opacity: (loading && !isStreaming && messages.length === 0) ? 0 : 1,
+        transition: 'opacity 0.15s ease-in'
+      }
+    },
+      
+      messages.map((message, index) => {
+        // Find the preceding user question for AI messages
+        let userQuestion = '';
+        if (message.role !== 'user' && index > 0) {
+          // Look back for the most recent user message
+          for (let i = index - 1; i >= 0; i--) {
+            if (messages[i].role === 'user') {
+              userQuestion = messages[i].message || '';
+              break;
+            }
+          }
+        }
+        // Calculate response number for AI messages (1-indexed count of AI messages up to this point)
+        let responseNumber = null;
+        if (message.role !== 'user') {
+          responseNumber = messages.slice(0, index + 1).filter(m => m.role !== 'user').length;
+        }
+        return React.createElement(ChatMessage, {
+          key: message.id || message.timestamp,
+          message: message.message,
+          isUser: message.role === 'user',
+          timestamp: message.timestamp,
+          files: message.files || (message.file ? [message.file] : null),
+          citations: message.citations || [],
+          inlineCitations: message.inlineCitations || [],
+          artifacts: message.artifacts || null,
+          isStreaming: false, // Completed messages are not streaming
+          userQuestion: userQuestion,
+          responseNumber: responseNumber,
+          onSaveToLibrary: onSaveToLibrary,
+          followUpQuestions: message.followUpQuestions,
+          onFollowUpClick: handleSendMessage,
+          onOpenSourcesPanel: onOpenSourcesPanel
+        });
+      }),
+
+      isStreaming && streamingMessage && React.createElement(ChatMessage, {
+        message: streamingMessage,
+        isUser: false,
+        isStreaming: true // Mark streaming message
+      }),
+
+      isStreaming && React.createElement(TypingIndicator, {
+        jurisdictions: activeJurisdictions,
+        hasStreamStarted: Boolean(streamingMessage),
+        isExtendedOverride: extendedSearch,
+        statusText: statusText
+      }),
+
+      React.createElement('div', { ref: messagesEndRef })
+    ),
+
+
+    React.createElement(ChatInput, {
+      onSendMessage: handleSendMessage,
+      onStopGeneration: handleStopGeneration,
+      disabled: loading && !isStreaming,  // Allow typing while streaming
+      isStreaming: isStreaming,
+      externalFiles: droppedFiles,
+      onExternalFilesProcessed: handleExternalFilesProcessed,
+      onDocumentUploaded: onDocumentUploaded,
+      freeTierStatus: freeTierStatus,
+      onSubscribeClick: onFreeTierExhausted,
+      inForceFilter: inForceFilter,
+      onInForceFilterChange: onInForceFilterChange,
+      focusTrigger: sessionId,
+      mobileNavComponent: React.cloneElement(mobileNavComponent, {
+        ...mobileNavComponent.props,
+        scrollButton: showScrollButton && React.createElement('button', {
+          className: 'scroll-to-bottom-button mobile-nav-button',
+          onClick: () => {
+            scrollToBottom(true);
+            // Button will hide automatically when scroll completes due to scroll handler
+          },
+          'aria-label': 'Scroll to bottom',
+          title: 'Scroll to bottom'
+        }, '↓')
+      })
+    })
+  );
+};
+
+// Export to window
+window.ChatInterface = ChatInterface;

@@ -1,0 +1,719 @@
+/* ChatInput Component Styles */
+
+/* Checkbox Styles */
+.chat-input-checkbox {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--text-muted);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: transparent;
+  flex-shrink: 0;
+}
+
+.chat-input-checkbox-icon {
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
+/* Flex Spacer */
+.flex-spacer {
+  flex: 1;
+}
+
+/* Info Icon Container */
+.info-icon-container {
+  position: relative;
+}
+
+.info-icon {
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.info-icon.active {
+  color: var(--text-primary);
+}
+
+/* Jurisdiction Tooltip */
+.jurisdiction-tooltip {
+  position: fixed;
+  background-color: var(--tutorial-bg);
+  border: 1px solid var(--tutorial-border);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  color: var(--tutorial-text);
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.4;
+  width: 200px;
+  z-index: 9999;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Jurisdiction Validation Tooltip (different from info tooltips) */
+.jurisdiction-validation-tooltip {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 0.75rem;
+  background-color: var(--tutorial-bg);
+  border: 1px solid var(--tutorial-border);
+  border-radius: 0.75rem;
+  padding: 0.6rem 1rem;
+  color: var(--tutorial-text);
+  font-size: 0.9rem;
+  font-weight: 500;
+  white-space: nowrap;
+  z-index: 1001;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  animation: validationTooltipBounce 0.3s ease-out;
+}
+
+@keyframes validationTooltipBounce {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Validation tooltip arrow - left aligned */
+.jurisdiction-validation-tooltip .tooltip-arrow {
+  left: 20px;
+  transform: none;
+}
+
+.jurisdiction-validation-tooltip .tooltip-arrow-inner {
+  left: 20px;
+  transform: none;
+}
+
+/* Tooltip Arrow */
+.tooltip-arrow {
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 8px solid var(--tutorial-border);
+}
+
+@media (max-width: 480px) {
+  .tooltip-arrow {
+    left: 20px;
+    transform: none;
+  }
+}
+
+.tooltip-arrow-inner {
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 7px solid var(--tutorial-bg);
+}
+
+@media (max-width: 480px) {
+  .tooltip-arrow-inner {
+    left: 20px;
+    transform: none;
+  }
+}
+
+/* Divider */
+.filter-divider {
+  width: 1.5px;
+  min-width: 1.5px;
+  height: 22px;
+  background-color: var(--border-light);
+  margin: 0 0.75rem;
+  flex-shrink: 0;
+}
+
+/* Filters Label */
+.filters-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-right: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Menu Item with Info Icon */
+.menu-item-with-info {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.menu-info-icon {
+  font-size: 10px;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.menu-info-icon:hover {
+  opacity: 1;
+  color: var(--text-primary);
+}
+
+/* Info Bubble (speech bubble style) */
+.menu-info-bubble {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: var(--tutorial-bg);
+  border: 1px solid var(--tutorial-border);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  color: var(--tutorial-text);
+  font-size: 0.8rem;
+  font-weight: 400;
+  line-height: 1.5;
+  width: 220px;
+  z-index: 9999;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  pointer-events: auto;
+}
+
+/* Arrow pointing down */
+.menu-info-arrow {
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 8px solid var(--tutorial-border);
+}
+
+.menu-info-arrow::after {
+  content: '';
+  position: absolute;
+  top: -9px;
+  left: -7px;
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 7px solid var(--tutorial-bg);
+}
+
+/* Year Slider Container */
+.year-slider-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-right: 0.75rem;
+  user-select: none;
+  flex-shrink: 0;
+  min-width: 120px;
+  max-width: 140px;
+}
+
+/* Year Labels */
+.year-label {
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+  width: 36px;
+  text-align: center;
+  cursor: pointer;
+  transition: color 0.2s;
+  flex-shrink: 0;
+}
+
+.year-label.inactive {
+  color: var(--text-muted);
+}
+
+/* Slider Track */
+.slider-track {
+  position: relative;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.slider-inner-container {
+  position: relative;
+  height: 4px;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+
+.track-background {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: var(--border-light);
+  pointer-events: none;
+  transition: background-color 0.2s;
+}
+
+.track-active-range {
+  position: absolute;
+  height: 2px;
+  background-color: var(--text-secondary);
+  pointer-events: none;
+}
+
+/* Slider Handles */
+.slider-handle {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: all;
+}
+
+.slider-handle-inner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: var(--text-primary);
+  transition: background-color 0.2s, transform 0.1s;
+}
+
+.slider-handle:hover .slider-handle-inner {
+  background-color: var(--text-primary);
+  transform: scale(1.1);
+}
+
+/* In Force Toggle Container */
+.in-force-toggle-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-right: 0.75rem;
+  user-select: none;
+}
+
+/* In Force Label */
+.in-force-label {
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: color 0.15s;
+  width: 50px;
+  text-align: right;
+}
+
+/* In Force Track */
+.in-force-track {
+  position: relative;
+  width: 48px;
+  height: 20px;
+  background-color: var(--border-subtle);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+/* In Force Handle */
+.in-force-handle {
+  position: absolute;
+  top: 2px;
+  width: 20px;
+  height: 16px;
+  border-radius: 8px;
+  transition: left 0.2s ease-in-out, background-color 0.2s;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* In Force Handle - Current State (left, gray) */
+.in-force-handle.current {
+  left: 2px;
+  background-color: var(--text-muted);
+}
+
+/* In Force Handle - Middle State */
+.in-force-handle.all {
+  left: 14px;
+  background-color: var(--bg-input-button);
+}
+
+/* In Force Handle - Historical State (right) */
+.in-force-handle.historic {
+  left: 26px;
+  background-color: var(--bg-input-button);
+}
+
+/* Clear Filters Button */
+.clear-filters-btn {
+  background: transparent;
+  border: none;
+  margin-left: auto;
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+  pointer-events: all;
+}
+
+.clear-filters-btn.disabled {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+/* Hide clear filters button on mobile (legacy btn — container queries handle clear-all-filters-btn) */
+@media (max-width: 480px) {
+  .clear-filters-btn {
+    display: none;
+  }
+}
+
+/* Help Text */
+.chat-input-help-text {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.75rem;
+  max-width: 600px;
+}
+
+@media (max-width: 480px) {
+  .chat-input-help-text {
+    display: none;
+  }
+}
+
+/* Tooltip Bounce Animation */
+@keyframes tooltipBounce {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+@media (max-width: 480px) {
+  @keyframes tooltipBounce {
+    0% {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* =============================================
+   Jurisdiction Flag Filter Styles
+   ============================================= */
+
+/* Container for the jurisdiction flags */
+.jurisdiction-flags-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Individual flag wrapper */
+.jurisdiction-flag {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  overflow: visible;
+  cursor: pointer;
+  border: 2px solid var(--border-light);
+  transition: border 0.15s ease;
+  flex-shrink: 0;
+}
+
+/* Flag hover state (class-based to exclude info icon hover) */
+.jurisdiction-flag.hover-active img {
+  opacity: 0.5;
+}
+
+.jurisdiction-flag.hover-active .flag-remove-icon {
+  opacity: 1;
+}
+
+/* Remove icon overlay */
+.flag-remove-icon {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.flag-remove-icon i {
+  font-size: 14px;
+  color: var(--text-primary);
+  text-shadow: 0 0 3px var(--bg-user-input);
+}
+
+.jurisdiction-flag img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+/* Info icon overlay on selected flags */
+.flag-info-icon {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 14px;
+  height: 14px;
+  background-color: var(--bg-input-button);
+  border-radius: 50%;
+  border: 2px solid var(--bg-user-input);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 2;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.flag-info-icon i {
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: color 0.15s ease;
+}
+
+.flag-info-icon:hover i {
+  color: var(--text-primary);
+}
+
+/* Touch devices: hide flag info icons (they block flag taps on touch) */
+@media (pointer: coarse) {
+  .flag-info-icon {
+    display: none;
+  }
+}
+
+/* Info tooltip for selected flags */
+.flag-info-tooltip {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: var(--tutorial-bg);
+  border: 1px solid var(--tutorial-border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  color: var(--tutorial-text);
+  font-size: 0.7rem;
+  font-weight: 400;
+  line-height: 1.4;
+  width: 180px;
+  z-index: 9999;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  pointer-events: auto;
+}
+
+/* Tooltip arrow pointing down */
+.flag-info-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 6px;
+  border-style: solid;
+  border-color: var(--tutorial-border) transparent transparent transparent;
+}
+
+/* Add button (+) */
+.jurisdiction-add-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px dashed var(--border-light);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.jurisdiction-add-btn:hover {
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.jurisdiction-add-btn.active {
+  border-color: var(--text-primary);
+  border-style: solid;
+  color: var(--text-primary);
+}
+
+/* Flag hover tooltip */
+.jurisdiction-flag-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: var(--tutorial-bg);
+  border: 1px solid var(--tutorial-border);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  color: var(--tutorial-text);
+  font-size: 0.7rem;
+  font-weight: 400;
+  white-space: nowrap;
+  z-index: 9999;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Tooltip arrow */
+.jurisdiction-flag-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 5px;
+  border-style: solid;
+  border-color: var(--tutorial-border) transparent transparent transparent;
+}
+
+/* Dropdown positioning handled by JS ref for fixed positioning */
+.jurisdiction-flags-container .filter-dropdown {
+  min-width: 200px;
+}
+
+/* =============================================
+   Light Theme Overrides
+   ============================================= */
+
+/* In Force Toggle - light mode */
+[data-theme="light"] .in-force-label {
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .in-force-track {
+  background-color: #828282;
+}
+
+[data-theme="light"] .in-force-handle.all,
+[data-theme="light"] .in-force-handle.historic {
+  background-color: #FFFFFF;
+}
+
+[data-theme="light"] .in-force-handle.current {
+  background-color: #CCCCCC;
+}
+
+/* Jurisdiction flag filter - light theme */
+[data-theme="light"] .jurisdiction-flag {
+  border-color: var(--border-medium);
+}
+
+[data-theme="light"] .jurisdiction-add-btn {
+  border-color: var(--border-medium);
+}
+
+[data-theme="light"] .jurisdiction-add-btn:hover {
+  border-color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+[data-theme="light"] .flag-info-icon {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] .flag-info-icon i {
+  color: var(--text-secondary);
+}
+
+[data-theme="light"] .flag-info-icon:hover i {
+  color: var(--text-primary);
+}
+
+/* =============================================
+   Container Query Responsive Collapse
+   Progressively hides lower-priority elements
+   as the input container narrows.
+   Order: dividers > "filters:" label > in-force label > in-force toggle
+   Never hidden: attachment button, send/stop button
+   ============================================= */
+
+@container (max-width: 450px) {
+  .filter-divider {
+    display: none;
+  }
+  .clear-all-filters-btn {
+    display: none;
+  }
+}
+
+@container (max-width: 380px) {
+  .filters-label {
+    display: none;
+  }
+}
+
+@container (max-width: 320px) {
+  .in-force-label {
+    display: none;
+  }
+  .in-force-toggle-container {
+    gap: 0;
+    margin-right: 0.25rem;
+  }
+}
+
+@container (max-width: 260px) {
+  .in-force-toggle-container {
+    display: none;
+  }
+}

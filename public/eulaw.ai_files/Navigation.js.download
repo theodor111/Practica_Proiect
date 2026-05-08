@@ -1,0 +1,113 @@
+/**
+ * Navigation Components
+ * NavIconBar - Slim left sidebar navigation for desktop
+ * MobileNavigation - Bottom navigation bar for mobile devices
+ */
+
+// React hooks accessed via React.useState, React.useEffect, etc.
+
+// Mobile Navigation Component - burger menu trigger
+const MobileNavigation = ({ onMenuClick, scrollButton }) => {
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
+                   ('ontouchstart' in window) ||
+                   (navigator.maxTouchPoints > 0);
+
+  if (!isMobile) {
+    // Desktop: Only show scroll button (centered)
+    return React.createElement('div', {
+      className: 'mobile-nav'
+    },
+      scrollButton
+    );
+  }
+
+  // Mobile: Show burger menu button in top-right and scroll button
+  return React.createElement(React.Fragment, null,
+    // Burger menu button (top-right overlay)
+    React.createElement('button', {
+      className: 'mobile-burger-menu',
+      onClick: onMenuClick,
+      'aria-label': 'Menu',
+      title: 'Menu'
+    },
+      React.createElement('i', { className: 'fas fa-bars' })
+    ),
+    // Scroll button (bottom center)
+    React.createElement('div', {
+      className: 'mobile-nav'
+    },
+      scrollButton
+    )
+  );
+};
+
+// Navigation Icon Bar Component (slim left sidebar)
+const NavIconBar = ({ onNewChat, onHistoryToggle, onDocumentsToggle, onSourcesToggle, onUserClick, onThemeToggle, onTutorialClick, isHistoryVisible, isDocumentsVisible, isSourcesVisible, subscriptionStatus, isStreaming, theme, tutorialStep, showMobile, onMobileClose, onMobileHistoryToggle, onMobileDocumentsToggle, onMobileSourcesToggle, inForceFilter, onInForceToggle, onSubscribeClick }) => {
+  // Get icon and label for in-force filter based on current state
+  const getInForceIcon = () => inForceFilter === 0 ? 'clock' : inForceFilter === 1 ? 'globe' : 'history';
+  const getInForceLabel = () => inForceFilter === 0 ? 'Current Laws' : inForceFilter === 1 ? 'All Laws' : 'Historic Laws';
+
+  const renderIconButton = (icon, label, onClick, { isActive = false, isDisabled = false, mobileOnly = false, hideOnMobile = false } = {}) => {
+    // Skip mobile-only buttons when not in mobile mode
+    if (mobileOnly && !showMobile) return null;
+    // Skip hideOnMobile buttons when in mobile mode
+    if (hideOnMobile && showMobile) return null;
+
+    const className = 'nav-icon-btn' + (isActive ? ' active' : '') + (isDisabled ? ' disabled' : '');
+    return React.createElement('button', {
+      className,
+      onClick: isDisabled ? undefined : onClick,
+      'aria-label': label,
+      title: label,
+      disabled: isDisabled
+    }, React.createElement('i', { className: `fas fa-${icon}` }));
+  };
+
+  const navBarClass = 'nav-icon-bar' + (showMobile ? ' mobile-show' : '');
+
+  // Use mobile-specific handlers when in mobile mode
+  const historyHandler = showMobile ? onMobileHistoryToggle : onHistoryToggle;
+  const documentsHandler = showMobile ? onMobileDocumentsToggle : onDocumentsToggle;
+  const sourcesHandler = showMobile ? onMobileSourcesToggle : onSourcesToggle;
+
+  return React.createElement(React.Fragment, null,
+    // Backdrop to close menu when clicking outside
+    showMobile && React.createElement('div', {
+      className: 'mobile-menu-backdrop',
+      onClick: onMobileClose
+    }),
+    React.createElement('div', { className: navBarClass },
+    React.createElement('div', { className: 'nav-icon-bar-top' },
+      React.createElement('div', { className: 'nav-icon-bar-logo' },
+        React.createElement('img', { src: '/favicon.svg', alt: 'eulaw.ai', className: 'nav-icon-bar-logo-img' })
+      ),
+      renderIconButton('edit', 'New Chat', onNewChat, { isDisabled: isStreaming }),
+      renderIconButton('comments', 'Conversations', historyHandler, { isActive: isHistoryVisible }),
+      renderIconButton('folder-open', 'My Documents', documentsHandler, { isActive: isDocumentsVisible }),
+      renderIconButton('book-open', 'Sources & Citations', sourcesHandler, { isActive: isSourcesVisible })
+    ),
+    React.createElement('div', { className: 'nav-icon-bar-bottom' },
+      renderIconButton('info-circle', 'App Tutorial', onTutorialClick, { isActive: tutorialStep > 0, hideOnMobile: true }),
+      renderIconButton('user', 'User Profile', onUserClick),
+      renderIconButton(
+        theme === 'light' ? 'sun' : 'moon',
+        theme === 'light' ? 'Light Mode' : 'Dark Mode',
+        onThemeToggle
+      ),
+      !showMobile && React.createElement('div', {
+        className: 'nav-icon-bar-badge',
+        onClick: subscriptionStatus?.isActive ? undefined : onSubscribeClick,
+        style: subscriptionStatus?.isActive ? {} : { cursor: 'pointer' }
+      },
+        React.createElement('span', { className: 'nav-bar-pro-badge' },
+          subscriptionStatus?.isActive ? 'PRO' : 'TRIAL'
+        )
+      )
+    )
+    )
+  );
+};
+
+// Export to window
+window.MobileNavigation = MobileNavigation;
+window.NavIconBar = NavIconBar;

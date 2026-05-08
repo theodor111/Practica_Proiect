@@ -1,0 +1,27 @@
+/* DocumentLibrary Component Styles */
+
+/* Hidden File Input */
+.doc-library-hidden-input {
+  display: none;
+}
+
+/* Document Item Meta Container */
+.doc-item-meta-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+/* Document Item Actions */
+.doc-item-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* Action Buttons */
+.doc-action-btn {
+  font-size: 0.65rem;
+  padding: 0.2rem;
+}

@@ -1,0 +1,46 @@
+/**
+ * Terms of Service Modal Component
+ * Displays terms of service agreement
+ */
+
+// React hooks accessed via React.useState, React.useEffect, etc.
+
+// Terms of Service Modal Component
+const TermsOfServiceModal = ({ onClose }) => {
+  const styles = window.LegalPolicyStyles || {};
+
+  return window.LegalPolicyModal({
+    isOpen: true,
+    onClose,
+    title: 'Terms of Service',
+    children: [
+      React.createElement('p', { key: 'updated', style: styles.lastUpdated }, 'Last Updated: August 24, 2025'),
+
+      React.createElement('h3', { key: 'h-accept', style: styles.sectionTitle }, '1. Acceptance of Terms'),
+      React.createElement('p', { key: 'p-accept', style: styles.paragraph }, 'By accessing and using eulaw.ai, you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use our service.'),
+
+      React.createElement('h3', { key: 'h-desc', style: styles.sectionTitle }, '2. Description of Service'),
+      React.createElement('p', { key: 'p-desc', style: styles.paragraph }, 'eulaw.ai provides AI-powered legal document analysis and information services. Our service is for informational purposes only and does not constitute legal advice.'),
+
+      React.createElement('h3', { key: 'h-resp', style: styles.sectionTitle }, '3. User Responsibilities'),
+      React.createElement('ul', { key: 'ul-resp', style: { marginLeft: '2rem', marginBottom: '1rem' } },
+        React.createElement('li', { key: 'li-1' }, 'You must provide accurate and complete information'),
+        React.createElement('li', { key: 'li-2' }, 'You are responsible for maintaining the confidentiality of your account'),
+        React.createElement('li', { key: 'li-3' }, 'You agree not to use the service for any unlawful purpose'),
+        React.createElement('li', { key: 'li-4' }, 'You will not attempt to reverse engineer or compromise our systems')
+      ),
+
+      React.createElement('h3', { key: 'h-disclaim', style: styles.sectionTitle }, '4. Disclaimer of Legal Advice'),
+      React.createElement('p', { key: 'p-disclaim', style: { marginBottom: '1rem', fontWeight: '600' } }, 'IMPORTANT: eulaw.ai does not provide legal advice. The information provided by our service is for general informational purposes only and should not be construed as legal advice or legal opinion on any specific facts or circumstances.'),
+
+      React.createElement('h3', { key: 'h-liability', style: styles.sectionTitle }, '5. Limitation of Liability'),
+      React.createElement('p', { key: 'p-liability', style: styles.paragraph }, 'To the maximum extent permitted by law, eulaw.ai shall not be liable for any indirect, incidental, special, consequential, or punitive damages resulting from your use of or inability to use the service.'),
+
+      React.createElement('h3', { key: 'h-term', style: styles.sectionTitle }, '6. Termination'),
+      React.createElement('p', { key: 'p-term', style: styles.paragraph }, 'We reserve the right to terminate or suspend your account at any time, with or without cause, with or without notice.')
+    ]
+  });
+};
+
+// Export to window
+window.TermsOfServiceModal = TermsOfServiceModal;

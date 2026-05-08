@@ -1,0 +1,10 @@
+/* ChatHistory Component Styles */
+/* Tree view styles are reused from .document-library-tree-* classes in style.css */
+
+/* Pin star icon (inline with session name) */
+.chat-pin-icon {
+  font-size: 0.55rem;
+  color: var(--text-highlight);
+  margin-right: 0.25rem;
+  flex-shrink: 0;
+}

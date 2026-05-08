@@ -1,0 +1,52 @@
+/**
+ * License Agreement Modal Component
+ * Displays user license agreement with key terms
+ */
+
+// React hooks accessed via React.useState, React.useEffect, etc.
+
+// License Agreement Modal Component
+const LicenseAgreementModal = ({ onClose }) => {
+  return window.Modal({
+    isOpen: true,
+    onClose,
+    title: 'User License Agreement',
+    size: 'md',
+    className: 'license-agreement-dialog',
+    children: [
+      window.ModalWarningBox
+        ? window.ModalWarningBox({
+            title: 'NOT LEGAL ADVICE',
+            children: 'The Service provides legal information only and does not constitute legal advice. The AI-generated responses are for informational purposes only and should not be relied upon as a substitute for professional legal counsel.'
+          })
+        : React.createElement('div', { key: 'warning', className: 'modal-warning-box' },
+            React.createElement('strong', { className: 'modal-warning-text' }, 'NOT LEGAL ADVICE: '),
+            'The Service provides legal information only and does not constitute legal advice. The AI-generated responses are for informational purposes only and should not be relied upon as a substitute for professional legal counsel.'
+          ),
+
+      React.createElement('h3', { key: 'terms-title', className: 'license-terms-title' }, 'Key Terms:'),
+      React.createElement('ul', { key: 'terms-list', className: 'license-terms-list' },
+        React.createElement('li', { key: 't1' }, 'No attorney-client relationship is created'),
+        React.createElement('li', { key: 't2' }, 'AI responses may contain errors or inaccuracies'),
+        React.createElement('li', { key: 't3' }, 'Always consult a qualified legal professional for legal advice'),
+        React.createElement('li', { key: 't4' }, 'Service is for informational and educational purposes only'),
+        React.createElement('li', { key: 't5' }, 'Subscription fees are non-refundable except as required by law'),
+        React.createElement('li', { key: 't6' }, 'We comply with GDPR and data protection requirements')
+      ),
+
+      React.createElement('p', {
+        key: 'acknowledgment',
+        className: 'license-acknowledgment'
+      }, 'By using eulaw.ai, you acknowledge that you have read, understood, and agree to be bound by these terms.')
+    ],
+    footer: window.ModalCloseButton
+      ? window.ModalCloseButton({ onClick: onClose })
+      : React.createElement('button', {
+          onClick: onClose,
+          className: 'license-close-btn'
+        }, 'Close')
+  });
+};
+
+// Export to window
+window.LicenseAgreementModal = LicenseAgreementModal;

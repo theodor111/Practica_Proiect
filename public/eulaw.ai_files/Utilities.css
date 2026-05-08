@@ -1,0 +1,125 @@
+/* Utilities Component Styles */
+
+/* Typing Indicator */
+.typing-indicator-container {
+  display: flex;
+  align-items: center;
+  margin-left: 0;
+  margin-top: 0;
+  min-height: 20px;
+}
+
+.typing-indicator-container .typing-dot {
+  align-self: center;
+  margin-top: 2px;
+}
+
+/* Favicon Stack - Dynamic width calculation */
+.favicon-stack {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* Individual Favicon Link */
+.favicon-link {
+  position: absolute;
+}
+
+/* Jurisdiction Loading Text */
+.typing-indicator-text {
+  font-size: 13px;
+  line-height: 1;
+  margin-left: 8px;
+  padding: 4px 0;
+  white-space: nowrap;
+  background: linear-gradient(
+    90deg,
+    white 0%,
+    white 45%,
+    transparent 50%,
+    white 55%,
+    white 100%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: glossy-sweep 2s ease-in-out infinite;
+}
+
+[data-theme="light"] .typing-indicator-text {
+  background: linear-gradient(
+    90deg,
+    #1a1a1a 0%,
+    #1a1a1a 45%,
+    rgba(26, 26, 26, 0.2) 50%,
+    #1a1a1a 55%,
+    #1a1a1a 100%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+@keyframes glossy-sweep {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+  .typing-indicator-container {
+    height: auto;
+    min-height: 20px;
+    flex-wrap: nowrap;
+    padding-left: 0.75rem;
+    overflow: visible;
+  }
+
+  .typing-indicator-container .typing-dot {
+    flex-shrink: 0;
+    opacity: 0.5;
+    animation: typing-sequence-mobile 2s infinite;
+  }
+
+  .typing-indicator-container .typing-dot:nth-child(1) {
+    animation-delay: 0s;
+  }
+
+  .typing-indicator-container .typing-dot:nth-child(2) {
+    animation-delay: 0.33s;
+  }
+
+  .typing-indicator-container .typing-dot:nth-child(3) {
+    animation-delay: 0.66s;
+  }
+
+  .typing-indicator-text {
+    font-size: 0.8rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: calc(100vw - 100px);
+  }
+}
+
+@keyframes typing-sequence-mobile {
+  0% {
+    opacity: 0.3;
+  }
+  16.67% {
+    opacity: 1;
+  }
+  33.33% {
+    opacity: 1;
+  }
+  50%, 100% {
+    opacity: 0.3;
+  }
+}

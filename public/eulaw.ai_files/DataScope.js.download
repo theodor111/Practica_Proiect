@@ -1,0 +1,309 @@
+/**
+ * DataScope Component
+ * Floating card showing what data categories the AI searches through,
+ * based on active jurisdiction filters.
+ */
+
+const JURISDICTION_FILTER_STORAGE_KEY = 'jurisdictionFilter';
+
+const DATA_SCOPE = {
+  EU: {
+    flag: 'https://flagcdn.com/w80/eu.webp',
+    label: 'European Union & International',
+    totalDocs: 831805,
+    categories: [
+      { name: 'Legislation', description: 'Regulations, directives, decisions' },
+      { name: 'Case Law', description: 'CJEU judgments and opinions' },
+      { name: 'Official Publications', description: 'Official Journal (L & C series)' },
+      { name: 'Treaties', description: 'TEU, TFEU, Charter of Fundamental Rights' },
+      { name: 'Human Rights', description: 'ECHR judgments' },
+      { name: 'Agency Guidance', description: 'Financial, banking, insurance, health authorities' },
+      { name: 'Technical Standards', description: 'Regulatory technical standards' },
+      { name: 'Reports & Opinions', description: 'Advisory opinions, reports, consultations' },
+    ],
+  },
+  DK: {
+    flag: 'https://flagcdn.com/w80/dk.webp',
+    label: 'Denmark',
+    totalDocs: 341966,
+    categories: [
+      { name: 'Legislation', description: 'Acts, administrative orders, consolidated acts' },
+      { name: 'Court Decisions', description: 'Court judgments and rulings' },
+      { name: 'Tax Decisions', description: 'Tax tribunal decisions and ministry guidance' },
+      { name: 'Administrative Decisions', description: 'Regulatory authority decisions' },
+      { name: 'Parliamentary Documents', description: 'Bills, committee reports, proposals' },
+      { name: 'Guidance & Circulars', description: 'Administrative guidance and circulars' },
+      { name: 'Appeals Board Decisions', description: '14 specialized tribunal decisions' },
+    ],
+  },
+  FI: {
+    flag: 'https://flagcdn.com/w80/fi.webp',
+    label: 'Finland [BETA]',
+    totalDocs: 0,
+    categories: [
+      { name: 'Legislation', description: 'Acts and government decrees (Finlex)' },
+      { name: 'Court Decisions', description: 'Select Supreme Court and administrative court judgments' },
+      { name: 'Government Proposals', description: 'Hallituksen esitykset and committee reports' },
+    ],
+  },
+  IT: {
+    flag: 'https://flagcdn.com/w80/it.webp',
+    label: 'Italy [BETA]',
+    totalDocs: 0,
+    categories: [
+      { name: 'Legislation', description: 'Acts, decrees, and regulations (Normattiva)' },
+      { name: 'Court Decisions', description: 'Select Constitutional Court and Cassation judgments' },
+      { name: 'Regulatory Guidance', description: 'Authority guidance and circulars' },
+    ],
+  },
+  MT: {
+    flag: 'https://flagcdn.com/w80/mt.webp',
+    label: 'Malta [BETA]',
+    totalDocs: 0,
+    categories: [
+      { name: 'Legislation', description: 'Laws of Malta and subsidiary legislation' },
+      { name: 'Court Decisions', description: 'Select court judgments' },
+      { name: 'Regulatory Guidance', description: 'Authority guidance and notices' },
+    ],
+  },
+  NL: {
+    flag: 'https://flagcdn.com/w80/nl.webp',
+    label: 'Netherlands [BETA]',
+    totalDocs: 0,
+    categories: [
+      { name: 'Legislation', description: 'Acts, decrees, and regulations (wetten.overheid.nl)' },
+      { name: 'Court Decisions', description: 'Select Hoge Raad and appellate court judgments (Rechtspraak)' },
+      { name: 'Regulatory Guidance', description: 'Authority guidance and circulars' },
+    ],
+  },
+  NO: {
+    flag: 'https://flagcdn.com/w80/no.webp',
+    label: 'Norway [BETA]',
+    totalDocs: 0,
+    categories: [
+      { name: 'Legislation', description: 'Acts and regulations (Lovdata)' },
+      { name: 'Court Decisions', description: 'Select Supreme Court and appellate judgments' },
+      { name: 'Preparatory Works', description: 'Government propositions and committee reports' },
+    ],
+  },
+  PT: {
+    flag: 'https://flagcdn.com/w80/pt.webp',
+    label: 'Portugal [BETA]',
+    totalDocs: 0,
+    categories: [
+      { name: 'Legislation', description: 'Acts, decree-laws, and regulations (DRE)' },
+      { name: 'Court Decisions', description: 'Select Constitutional and Supreme Court judgments' },
+      { name: 'Regulatory Guidance', description: 'Authority guidance and notices' },
+    ],
+  },
+  SE: {
+    flag: 'https://flagcdn.com/w80/se.webp',
+    label: 'Sweden [BETA]',
+    totalDocs: 0,
+    categories: [
+      { name: 'Legislation', description: 'Acts and ordinances (SFS)' },
+      { name: 'Court Decisions', description: 'Select supreme and appellate court judgments' },
+      { name: 'Government Bills', description: 'Propositions and committee reports' },
+    ],
+  },
+};
+
+const DataScope = () => {
+  const [isExpanded, setIsExpanded] = React.useState(false);
+  const [filter, setFilter] = React.useState(() => {
+    try {
+      const stored = localStorage.getItem(JURISDICTION_FILTER_STORAGE_KEY);
+      return stored ? JSON.parse(stored) : { EU: true, DK: true };
+    } catch {
+      return { EU: true, DK: true };
+    }
+  });
+  const [dynamicCounts, setDynamicCounts] = React.useState(null);
+  const containerRef = React.useRef(null);
+
+  // Fetch live document counts once on mount (CDN-cached for 24h, no client-side cache needed)
+  React.useEffect(() => {
+    if (window.apiService && typeof window.apiService.getDocumentCounts === 'function') {
+      window.apiService.getDocumentCounts().then((counts) => {
+        if (counts && Object.keys(counts).length > 0) {
+          // Merge INTL + INTERNATIONAL into EU
+          const merged = { ...counts };
+          if (merged.INTL || merged.INTERNATIONAL) {
+            merged.EU = (merged.EU || 0) + (merged.INTL || 0) + (merged.INTERNATIONAL || 0);
+            delete merged.INTL;
+            delete merged.INTERNATIONAL;
+          }
+          setDynamicCounts(merged);
+        }
+      });
+    }
+  }, []);
+
+  // Listen for jurisdiction filter changes
+  React.useEffect(() => {
+    const handleChange = () => {
+      try {
+        const stored = localStorage.getItem(JURISDICTION_FILTER_STORAGE_KEY);
+        if (stored) setFilter(JSON.parse(stored));
+      } catch { /* ignore */ }
+    };
+    window.addEventListener('jurisdictionFilterChanged', handleChange);
+    return () => window.removeEventListener('jurisdictionFilterChanged', handleChange);
+  }, []);
+
+  // Click outside to close
+  React.useEffect(() => {
+    if (!isExpanded) return;
+    const handleClick = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsExpanded(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [isExpanded]);
+
+  const activeJurisdictions = Object.entries(filter)
+    .filter(([, active]) => active)
+    .map(([key]) => key)
+    .filter((key) => DATA_SCOPE[key]);
+
+  // Helper: get doc count for a jurisdiction (dynamic if available, else hardcoded)
+  const getDocCount = (key) => {
+    if (dynamicCounts && dynamicCounts[key] != null) return dynamicCounts[key];
+    return DATA_SCOPE[key].totalDocs;
+  };
+
+  const totalDocs = activeJurisdictions.reduce(
+    (sum, key) => sum + getDocCount(key), 0
+  );
+
+  const pillText = activeJurisdictions.length === 0
+    ? 'No jurisdiction selected'
+    : `Searching ${totalDocs.toLocaleString()}+ documents`;
+
+  // Database icon SVG
+  const dbIcon = React.createElement('svg', {
+    className: 'data-scope-icon',
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: '2',
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+  },
+    React.createElement('ellipse', { cx: '12', cy: '5', rx: '9', ry: '3' }),
+    React.createElement('path', { d: 'M21 12c0 1.66-4 3-9 3s-9-1.34-9-3' }),
+    React.createElement('path', { d: 'M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5' }),
+  );
+
+  // Close icon SVG
+  const closeIcon = React.createElement('svg', {
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: '2',
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    width: '16',
+    height: '16',
+  },
+    React.createElement('line', { x1: '18', y1: '6', x2: '6', y2: '18' }),
+    React.createElement('line', { x1: '6', y1: '6', x2: '18', y2: '18' }),
+  );
+
+  // Checkmark icon SVG
+  const checkIcon = React.createElement('svg', {
+    className: 'data-scope-check',
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: '2.5',
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    width: '14',
+    height: '14',
+  },
+    React.createElement('polyline', { points: '20 6 9 17 4 12' }),
+  );
+
+  if (!isExpanded) {
+    return React.createElement('div', {
+      className: 'data-scope-container',
+      ref: containerRef,
+    },
+      React.createElement('button', {
+        className: 'data-scope-pill',
+        onClick: () => setIsExpanded(true),
+        'aria-label': 'Show data sources',
+      }, dbIcon, React.createElement('span', null, pillText)),
+    );
+  }
+
+  return React.createElement('div', {
+    className: 'data-scope-container',
+    ref: containerRef,
+  },
+    React.createElement('div', { className: 'data-scope-card' },
+      // Header
+      React.createElement('div', { className: 'data-scope-header' },
+        React.createElement('div', null,
+          React.createElement('div', { className: 'data-scope-title' }, 'Data Sources'),
+          React.createElement('div', { className: 'data-scope-subtitle' },
+            totalDocs > 0
+              ? `${totalDocs.toLocaleString()} documents`
+              : 'No jurisdictions active'
+          ),
+        ),
+        React.createElement('button', {
+          className: 'data-scope-close',
+          onClick: () => setIsExpanded(false),
+          'aria-label': 'Close data sources',
+        }, closeIcon),
+      ),
+
+      // Body
+      React.createElement('div', { className: 'data-scope-body' },
+        activeJurisdictions.map((key) => {
+          const jur = DATA_SCOPE[key];
+          return React.createElement('div', {
+            key,
+            className: 'data-scope-jurisdiction',
+          },
+            // Jurisdiction header
+            React.createElement('div', { className: 'data-scope-jur-header' },
+              React.createElement('img', {
+                src: jur.flag,
+                alt: jur.label,
+                className: 'data-scope-flag',
+              }),
+              React.createElement('span', { className: 'data-scope-jur-label' }, jur.label),
+              React.createElement('span', { className: 'data-scope-jur-count' },
+                `${getDocCount(key).toLocaleString()} docs`
+              ),
+            ),
+            // Categories
+            jur.categories.map((cat) =>
+              React.createElement('div', {
+                key: cat.name,
+                className: 'data-scope-category',
+              },
+                checkIcon,
+                React.createElement('div', { className: 'data-scope-cat-info' },
+                  React.createElement('div', { className: 'data-scope-cat-name' }, cat.name),
+                  React.createElement('div', { className: 'data-scope-cat-desc' }, cat.description),
+                ),
+              )
+            ),
+          );
+        }),
+        activeJurisdictions.length === 0 &&
+          React.createElement('div', { className: 'data-scope-empty' },
+            'Select a jurisdiction to see available data sources.'
+          ),
+      ),
+    ),
+  );
+};
+
+window.DataScope = DataScope;

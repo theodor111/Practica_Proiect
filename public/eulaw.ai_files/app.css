@@ -1,0 +1,156 @@
+/* Main App Container Styles */
+.main-app-container {
+  height: 100vh;
+  height: 100dvh; /* Dynamic viewport height - accounts for mobile browser UI */
+  width: 100%;
+  display: flex;
+}
+
+/* Tutorial Overlay Container */
+.tutorial-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20000;
+  pointer-events: none;
+}
+
+/* Tutorial Bubble Base Styles */
+.tutorial-bubble {
+  position: absolute;
+  background-color: var(--tutorial-bg);
+  border: 1px solid var(--tutorial-border);
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+  color: var(--tutorial-text);
+  font-size: 0.9rem;
+  font-weight: 500;
+  line-height: 1.5;
+  pointer-events: auto;
+  box-shadow: 0 4px 20px var(--tutorial-shadow);
+}
+
+/* Tutorial Bubble Widths */
+.tutorial-bubble-sm {
+  min-width: 250px;
+  max-width: 300px;
+}
+
+.tutorial-bubble-md {
+  min-width: 300px;
+  max-width: 350px;
+}
+
+.tutorial-bubble-lg {
+  min-width: 300px;
+  max-width: 400px;
+}
+
+.tutorial-bubble-xl {
+  min-width: 300px;
+  max-width: 450px;
+}
+
+/* Tutorial Arrow Styles - Left Pointing */
+.tutorial-arrow-left-border {
+  position: absolute;
+  left: -8px;
+  width: 0;
+  height: 0;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-right: 8px solid var(--tutorial-border);
+}
+
+.tutorial-arrow-left-fill {
+  position: absolute;
+  left: -6px;
+  width: 0;
+  height: 0;
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+  border-right: 7px solid var(--tutorial-bg);
+}
+
+.tutorial-arrow-left-top {
+  top: 16px;
+}
+
+.tutorial-arrow-left-mid {
+  top: 20px;
+}
+
+/* Tutorial Arrow Styles - Bottom Pointing */
+.tutorial-arrow-bottom-border {
+  position: absolute;
+  bottom: -8px;
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 8px solid var(--tutorial-border);
+}
+
+.tutorial-arrow-bottom-fill {
+  position: absolute;
+  bottom: -6px;
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 7px solid var(--tutorial-bg);
+}
+
+.tutorial-arrow-bottom-left {
+  left: 20%;
+}
+
+.tutorial-arrow-bottom-center {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.tutorial-arrow-bottom-right {
+  right: 40px;
+}
+
+/* Tutorial Arrow Styles - Right Pointing */
+.tutorial-arrow-right-border {
+  position: absolute;
+  right: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-left: 8px solid var(--tutorial-border);
+}
+
+.tutorial-arrow-right-fill {
+  position: absolute;
+  right: -6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+  border-left: 7px solid var(--tutorial-bg);
+}
+
+/* Tutorial Next/Finish Button */
+.tutorial-button {
+  margin-top: 0.75rem;
+  padding: 0.5rem 1rem;
+  background-color: var(--tutorial-button-bg);
+  color: var(--tutorial-text);
+  border: none;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  width: 100%;
+}

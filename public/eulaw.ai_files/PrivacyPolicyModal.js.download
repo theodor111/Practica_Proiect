@@ -1,0 +1,127 @@
+/**
+ * Privacy Policy Modal Component
+ * Displays privacy policy with GDPR compliance information
+ */
+
+// React hooks accessed via React.useState, React.useEffect, etc.
+
+// Privacy Policy Modal Component
+const PrivacyPolicyModal = ({ onClose }) => {
+  const styles = window.LegalPolicyStyles || {};
+
+  // Helper to create info boxes
+  const InfoBox = (title, content, extraStyle = {}) => React.createElement('div', {
+    style: { ...styles.infoBox, ...extraStyle }
+  },
+    React.createElement('h4', { style: styles.infoBoxTitle }, title),
+    content
+  );
+
+  // Helper to create list items with bold labels
+  const LabeledItem = (label, text) => React.createElement('li', { key: label },
+    React.createElement('strong', null, label + ': '), text
+  );
+
+  return window.LegalPolicyModal({
+    isOpen: true,
+    onClose,
+    title: 'Privacy Policy',
+    contentClassName: 'modal-content-lg',
+    children: [
+      React.createElement('p', { key: 'updated', style: styles.lastUpdated }, 'Last Updated: August 23, 2025'),
+
+      React.createElement('p', { key: 'intro', className: 'privacy-intro' },
+        'eulaw.ai ("we," "our," or "us") is committed to protecting your privacy and ensuring the security of your personal data. This Privacy Policy explains how we collect, use, store, and protect your information when you use our AI-powered legal document processing platform.'),
+
+      // Data Controller Box
+      InfoBox('Data Controller',
+        React.createElement('p', { className: 'privacy-data-controller' },
+          React.createElement('strong', null, 'Company: '), 'eulaw.ai', React.createElement('br'),
+          React.createElement('strong', null, 'CVR Number: '), '45768554', React.createElement('br'),
+          React.createElement('strong', null, 'Country: '), 'Denmark'
+        )
+      ),
+
+      React.createElement('h3', { key: 'h-collect', style: styles.sectionTitle }, '1. Information We Collect'),
+
+      React.createElement('h4', { key: 'h-provide', style: styles.subsectionTitle }, '1.1 Information You Provide'),
+      React.createElement('ul', { key: 'ul-provide', style: styles.list },
+        LabeledItem('Account Information', 'Email address, name (optional), and authentication credentials'),
+        LabeledItem('Legal Documents', 'Documents you upload for analysis and processing'),
+        LabeledItem('Queries and Conversations', 'Your questions and interactions with our AI system'),
+        LabeledItem('Payment Information', 'Processed securely through Stripe (we do not store payment card details)')
+      ),
+
+      React.createElement('h4', { key: 'h-auto', style: styles.subsectionTitle }, '1.2 Information Collected Automatically'),
+      React.createElement('ul', { key: 'ul-auto', style: styles.list },
+        LabeledItem('Usage Data', 'How you interact with our service, features used, and session information'),
+        LabeledItem('Technical Data', 'IP address, browser type, device information, and operating system'),
+        LabeledItem('Cookies', 'Essential cookies for authentication and session management')
+      ),
+
+      React.createElement('h3', { key: 'h-use', style: styles.sectionTitle }, '2. How We Use Your Information'),
+      React.createElement('ul', { key: 'ul-use', style: styles.list },
+        React.createElement('li', { key: 'use-1' }, 'Process and analyze your legal documents using advanced AI language models'),
+        React.createElement('li', { key: 'use-2' }, 'Provide AI-powered legal information and document insights'),
+        React.createElement('li', { key: 'use-3' }, 'Maintain your chat history and document library'),
+        React.createElement('li', { key: 'use-4' }, 'Manage your account, subscription, and secure authentication'),
+        React.createElement('li', { key: 'use-5' }, 'Process payments securely through Stripe integration')
+      ),
+
+      // Important Commitments Box
+      InfoBox('Important Commitments',
+        React.createElement('ul', { className: 'privacy-info-list' },
+          LabeledItem('No AI Training on Your Data', 'Your personal conversations and documents are not used to train AI models'),
+          LabeledItem('Full Data Control', 'You are in full control of your data, and can manage it at anytime including full deletion'),
+          LabeledItem('No Data Sales', 'We never sell your personal data to third parties'),
+          LabeledItem('EU Data Processing', 'All AI processing occurs within European Union data centers')
+        ),
+        { marginTop: '1.5rem' }
+      ),
+
+      React.createElement('h3', { key: 'h-storage', style: styles.sectionTitle }, '3. Data Storage and Security'),
+      React.createElement('ul', { key: 'ul-storage', style: styles.list },
+        React.createElement('li', { key: 'st-1' }, 'Your data is stored securely on enterprise-grade cloud infrastructure'),
+        React.createElement('li', { key: 'st-2' }, 'Primary data location: European Union'),
+        React.createElement('li', { key: 'st-3' }, 'End-to-end encryption for data transmission'),
+        React.createElement('li', { key: 'st-4' }, 'Encryption at rest for stored data'),
+        React.createElement('li', { key: 'st-5' }, 'Regular security audits and updates')
+      ),
+
+      // GDPR Rights Box
+      InfoBox('4. Your Rights Under GDPR',
+        React.createElement(React.Fragment, null,
+          React.createElement('p', { style: styles.paragraph }, 'As a data subject, you have the following rights:'),
+          React.createElement('ul', { style: styles.list },
+            LabeledItem('Right to Access (Article 15)', 'Request a copy of your personal data'),
+            LabeledItem('Right to Rectification (Article 16)', 'Correct inaccurate personal data'),
+            LabeledItem('Right to Erasure (Article 17)', 'Request deletion of your personal data'),
+            LabeledItem('Right to Restriction (Article 18)', 'Limit processing of your data'),
+            LabeledItem('Right to Portability (Article 20)', 'Receive your data in a portable format'),
+            LabeledItem('Right to Object (Article 21)', 'Object to certain processing activities')
+          ),
+          React.createElement('p', { className: 'privacy-gdpr-note' },
+            'We will respond to your request within 30 days as required by GDPR.')
+        ),
+        { marginTop: '2rem' }
+      ),
+
+      React.createElement('h3', { key: 'h-contact', style: styles.sectionTitle }, '5. Contact Us'),
+      React.createElement('p', { key: 'p-contact', style: styles.paragraph },
+        'For any questions about this Privacy Policy or to exercise your GDPR rights:'),
+      React.createElement('a', {
+        key: 'support-link',
+        href: 'https://cloudbastion.atlassian.net/servicedesk/customer/portal/1',
+        target: '_blank',
+        rel: 'noopener noreferrer',
+        className: 'support-ticket-link'
+      },
+        React.createElement('i', { className: 'fas fa-ticket-alt' }),
+        'Submit a Support Ticket'
+      )
+    ]
+  });
+};
+
+// Export to window
+window.PrivacyPolicyModal = PrivacyPolicyModal;

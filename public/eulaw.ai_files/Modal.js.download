@@ -1,0 +1,195 @@
+/**
+ * Generic Modal Component
+ * Reusable modal wrapper with consistent styling and behavior
+ */
+
+/**
+ * Generic Modal wrapper component
+ * @param {Object} props - Component props
+ * @param {boolean} props.isOpen - Whether modal is visible
+ * @param {function} props.onClose - Close handler
+ * @param {string} props.title - Modal title
+ * @param {string} props.size - Modal size: 'sm' | 'md' | 'lg' | 'xl' (default: 'md')
+ * @param {string} props.className - Additional class name for the dialog
+ * @param {boolean} props.showCloseButton - Whether to show close button in header (default: true)
+ * @param {string} props.closeButtonType - 'icon' (FontAwesome) or 'text' (X character) (default: 'icon')
+ * @param {boolean} props.stickyHeader - Whether header should be sticky for long content (default: false)
+ * @param {React.ReactNode} props.children - Modal content
+ * @param {React.ReactNode} props.footer - Optional footer content
+ */
+function Modal({ isOpen, onClose, title, size = 'md', className = '', showCloseButton = true, closeButtonType = 'icon', stickyHeader = false, children, footer }) {
+  if (!isOpen) return null;
+
+  const sizeClass = `modal-dialog-${size}`;
+  const headerClass = stickyHeader ? 'modal-header modal-header-sticky' : 'modal-header';
+  const closeButtonClass = closeButtonType === 'text' ? 'modal-close-btn modal-close-text' : 'modal-close-icon';
+
+  return React.createElement('div', {
+    className: 'modal-overlay modal-overlay-standard',
+    onClick: (e) => {
+      if (e.target.classList && e.target.classList.contains('modal-overlay')) {
+        onClose && onClose();
+      }
+    }
+  },
+    React.createElement('div', {
+      className: `modal-dialog modal-dialog-standard ${sizeClass} ${className}`,
+      onClick: (e) => e.stopPropagation()
+    },
+      // Header
+      title && React.createElement('div', {
+        className: headerClass
+      },
+        React.createElement('h2', {
+          className: 'modal-title'
+        }, title),
+        showCloseButton && React.createElement('button', {
+          onClick: onClose,
+          className: closeButtonClass,
+          'aria-label': 'Close modal'
+        },
+          closeButtonType === 'text'
+            ? '\u2715'
+            : React.createElement('i', { className: 'fas fa-times' })
+        )
+      ),
+
+      // Content
+      React.createElement('div', {
+        className: 'modal-content'
+      }, children),
+
+      // Footer (optional)
+      footer && React.createElement('div', {
+        className: 'modal-footer'
+      }, footer)
+    )
+  );
+}
+
+window.Modal = Modal;
+
+/**
+ * Simple confirmation/info modal
+ * @param {Object} props - Component props
+ * @param {boolean} props.isOpen - Whether modal is visible
+ * @param {function} props.onClose - Close handler
+ * @param {string} props.title - Modal title
+ * @param {string} props.message - Modal message
+ * @param {string} props.buttonText - Button text (default: 'OK')
+ */
+function AlertModal({ isOpen, onClose, title, message, buttonText = 'OK' }) {
+  return React.createElement(Modal, {
+    isOpen,
+    onClose,
+    title,
+    size: 'sm',
+    children: React.createElement('p', null, message),
+    footer: React.createElement('button', {
+      onClick: onClose,
+      className: 'btn-primary'
+    }, buttonText)
+  });
+}
+
+window.AlertModal = AlertModal;
+
+/**
+ * Warning box component for modals
+ */
+function ModalWarningBox({ icon = '⚠️', title, children }) {
+  return React.createElement('div', {
+    className: 'modal-warning-box'
+  },
+    React.createElement('strong', { className: 'modal-warning-text' }, `${icon} ${title}: `),
+    children
+  );
+}
+
+window.ModalWarningBox = ModalWarningBox;
+
+/**
+ * Standard close button for modal footers
+ */
+function ModalCloseButton({ onClick, text = 'Close' }) {
+  return React.createElement('button', {
+    onClick,
+    style: {
+      padding: '0.5rem 1.5rem',
+      backgroundColor: '#3b82f6',
+      color: 'white',
+      border: 'none',
+      borderRadius: '6px',
+      cursor: 'pointer'
+    }
+  }, text);
+}
+
+window.ModalCloseButton = ModalCloseButton;
+
+/**
+ * Legal Policy Modal - specialized for privacy policy, terms, etc.
+ * Uses large size, sticky header, and text close button
+ * @param {Object} props - Component props
+ * @param {boolean} props.isOpen - Whether modal is visible
+ * @param {function} props.onClose - Close handler
+ * @param {string} props.title - Modal title
+ * @param {string} props.contentClassName - Optional class for content div (default: 'modal-content')
+ * @param {React.ReactNode} props.children - Modal content
+ */
+function LegalPolicyModal({ isOpen, onClose, title, contentClassName, children }) {
+  if (!isOpen) return null;
+
+  return React.createElement('div', {
+    className: 'modal-overlay modal-overlay-standard',
+    onClick: (e) => {
+      if (e.target.classList && e.target.classList.contains('modal-overlay')) {
+        onClose && onClose();
+      }
+    }
+  },
+    React.createElement('div', {
+      className: 'modal-dialog modal-dialog-standard modal-dialog-lg legal-dialog',
+      onClick: (e) => e.stopPropagation()
+    },
+      // Header with sticky positioning
+      React.createElement('div', {
+        className: 'modal-header modal-header-sticky'
+      },
+        React.createElement('h2', {
+          className: 'modal-title'
+        }, title),
+        React.createElement('button', {
+          onClick: onClose,
+          className: 'modal-close-btn modal-close-text',
+          'aria-label': 'Close modal'
+        }, '\u2715')
+      ),
+      // Content
+      React.createElement('div', {
+        className: contentClassName || 'modal-content'
+      }, children)
+    )
+  );
+}
+
+window.LegalPolicyModal = LegalPolicyModal;
+
+/**
+ * Common styles for legal policy content sections
+ */
+window.LegalPolicyStyles = {
+  lastUpdated: { marginBottom: '1rem', fontSize: '0.9rem', color: '#999' },
+  sectionTitle: { color: '#ffffff', fontSize: '1.2rem', marginTop: '2rem', marginBottom: '1rem', paddingBottom: '0.5rem', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' },
+  subsectionTitle: { color: '#e0e0e0', fontSize: '1rem', marginTop: '1.5rem', marginBottom: '0.5rem' },
+  paragraph: { marginBottom: '1rem' },
+  list: { marginLeft: '1.5rem', marginBottom: '1rem' },
+  infoBox: {
+    background: 'rgba(255, 255, 255, 0.05)',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    borderRadius: '8px',
+    padding: '1.5rem',
+    marginBottom: '2rem'
+  },
+  infoBoxTitle: { color: '#ffffff', marginTop: 0, marginBottom: '0.75rem' }
+};

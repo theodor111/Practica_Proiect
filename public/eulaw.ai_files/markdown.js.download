@@ -1,0 +1,395 @@
+/**
+ * Markdown Parsing Utilities
+ * Functions for parsing markdown to HTML and handling citations
+ */
+
+/**
+ * HTML escaping function to prevent XSS
+ * @param {string} text - Text to escape
+ * @returns {string} - Escaped HTML text
+ */
+function escapeHtml(text) {
+  if (!text) return '';
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+window.escapeHtml = escapeHtml;
+
+/**
+ * Enhance existing [n] citation markers in HTML with interactive tooltips
+ * Bedrock KB generates [1], [2], etc. markers - we make them interactive
+ * @param {string} html - Parsed HTML containing [n] markers
+ * @param {Array} sources - Array of source objects for building tooltips
+ * @returns {string} - HTML with enhanced citation markers
+ */
+function enhanceExistingCitationMarkers(html, sources) {
+  if (!html || !sources || sources.length === 0) return html;
+
+  // Match [1], [2], etc. patterns (1-indexed as Bedrock generates them)
+  // Be careful not to match markdown link syntax like [text](url)
+  return html.replace(/\[(\d+)\](?!\()/g, (match, numStr) => {
+    const num = parseInt(numStr, 10);
+    // Bedrock uses 1-indexed citations, sources array is 0-indexed
+    const sourceIndex = num - 1;
+    const source = sources[sourceIndex];
+
+    if (!source) {
+      // No matching source, keep original text
+      return match;
+    }
+
+    // Build tooltip content
+    const tooltipTitle = source.title || source.filename || `Source ${num}`;
+    const tooltipPage = source.page_number ? `, p. ${source.page_number}` : '';
+    const tooltipExcerpt = source.text
+      ? source.text.substring(0, 150).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '...'
+      : '';
+
+    // Create the interactive citation marker
+    return `<span class="inline-citation" data-source-index="${sourceIndex}" data-tooltip-title="${escapeHtml(tooltipTitle)}${tooltipPage}" data-tooltip-excerpt="${tooltipExcerpt}"><sup>[${num}]</sup></span>`;
+  });
+}
+
+window.enhanceExistingCitationMarkers = enhanceExistingCitationMarkers;
+
+/**
+ * Enhanced Markdown Parser for AI Responses (XSS-safe)
+ * Supports: headers, lists, tables, blockquotes, code blocks, inline formatting
+ * Also enhances Bedrock's [n] citation markers with interactive tooltips
+ * @param {string} text - Markdown text to parse
+ * @param {Array} sources - Optional array of sources for citation enhancement
+ * @returns {string} - Parsed HTML
+ */
+function parseMarkdown(text, sources = null) {
+  if (!text) return '';
+
+  // First escape all HTML to prevent XSS
+  text = escapeHtml(text);
+
+  // Split text into lines for better processing
+  const lines = text.split('\n');
+  const processedLines = [];
+  let inList = false;
+  let listType = null; // 'ul' or 'ol'
+  let inTable = false;
+  let tableRows = [];
+  let inCodeBlock = false;
+  let codeBlockContent = [];
+  let codeBlockLang = '';
+
+  // Helper function to process inline formatting in table cells
+  const processTableCellContent = (content) => {
+    return content.trim()
+      // Convert literal <br> text to actual line breaks (AI sometimes outputs this)
+      .replace(/&lt;br&gt;/gi, '<br>')
+      .replace(/<br\s*\/?>/gi, '<br>')
+      // Bold text
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      // Italic text
+      .replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, '<em>$1</em>')
+      // Inline code
+      .replace(/`([^`]+)`/g, '<code>$1</code>');
+  };
+
+  // Helper function to process table rows
+  const processTableRows = () => {
+    if (tableRows.length === 0) return '';
+
+    let tableHtml = '<div class="table-wrapper"><table>';
+
+    // Check if second row is separator (header row indicator)
+    const hasHeader = tableRows.length > 1 && /^[\s|:-]+$/.test(tableRows[1]);
+
+    // Split pipe-delimited rows, preserving empty cells (e.g. row-label columns)
+    // Trim leading/trailing pipes but keep interior empty cells.
+    // Escaped pipes (\|) are swapped to a placeholder before splitting so they
+    // survive as literal `|` inside a cell rather than breaking the column count.
+    const PIPE_PLACEHOLDER = '\u0000PIPE\u0000';
+    const splitRow = (row) => {
+      const escaped = row.replace(/\\\|/g, PIPE_PLACEHOLDER);
+      const trimmed = escaped.replace(/^\s*\|/, '').replace(/\|\s*$/, '');
+      return trimmed.split('|').map(cell => cell.replace(new RegExp(PIPE_PLACEHOLDER, 'g'), '|'));
+    };
+
+    if (hasHeader && tableRows.length > 0) {
+      // First row is header
+      const headerCells = splitRow(tableRows[0]);
+      tableHtml += '<thead><tr>';
+      headerCells.forEach(cell => {
+        tableHtml += `<th>${processTableCellContent(cell)}</th>`;
+      });
+      tableHtml += '</tr></thead>';
+
+      // Rest are body rows (skip separator row)
+      if (tableRows.length > 2) {
+        tableHtml += '<tbody>';
+        for (let i = 2; i < tableRows.length; i++) {
+          const cells = splitRow(tableRows[i]);
+          tableHtml += '<tr>';
+          cells.forEach(cell => {
+            tableHtml += `<td>${processTableCellContent(cell)}</td>`;
+          });
+          tableHtml += '</tr>';
+        }
+        tableHtml += '</tbody>';
+      }
+    } else {
+      // No header, all body rows
+      tableHtml += '<tbody>';
+      tableRows.forEach(row => {
+        const cells = splitRow(row);
+        tableHtml += '<tr>';
+        cells.forEach(cell => {
+          tableHtml += `<td>${processTableCellContent(cell)}</td>`;
+        });
+        tableHtml += '</tr>';
+      });
+      tableHtml += '</tbody>';
+    }
+
+    tableHtml += '</table></div>';
+    return tableHtml;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+
+    // Handle code blocks (triple backticks)
+    if (line.match(/^```/)) {
+      if (inCodeBlock) {
+        // End of code block
+        processedLines.push(`<pre><code class="language-${codeBlockLang}">${codeBlockContent.join('\n')}</code></pre>`);
+        codeBlockContent = [];
+        codeBlockLang = '';
+        inCodeBlock = false;
+      } else {
+        // Start of code block
+        if (inList) { processedLines.push(`</${listType}>`); inList = false; }
+        if (inTable) { processedLines.push(processTableRows()); tableRows = []; inTable = false; }
+        codeBlockLang = line.replace(/^```/, '').trim() || 'text';
+        inCodeBlock = true;
+      }
+      continue;
+    }
+
+    if (inCodeBlock) {
+      codeBlockContent.push(line);
+      continue;
+    }
+
+    // Check for table rows (lines with | separators)
+    const isTableRow = line.includes('|') && line.trim().length > 1;
+    const isTableSeparator = /^[\s|:-]+$/.test(line) && line.includes('|');
+
+    if (isTableRow || isTableSeparator) {
+      if (inList) { processedLines.push(`</${listType}>`); inList = false; listType = null; }
+      if (!inTable) {
+        inTable = true;
+        tableRows = [];
+      }
+      tableRows.push(line);
+      continue;
+    } else if (inTable) {
+      // End of table
+      processedLines.push(processTableRows());
+      tableRows = [];
+      inTable = false;
+    }
+
+    // Check for headers (from most specific to least specific)
+    if (line.match(/^###### /)) {
+      if (inList) { processedLines.push(`</${listType}>`); inList = false; }
+      processedLines.push(line.replace(/^###### (.*)$/, '<h6>$1</h6>'));
+    } else if (line.match(/^##### /)) {
+      if (inList) { processedLines.push(`</${listType}>`); inList = false; }
+      processedLines.push(line.replace(/^##### (.*)$/, '<h5>$1</h5>'));
+    } else if (line.match(/^#### /)) {
+      if (inList) { processedLines.push(`</${listType}>`); inList = false; }
+      processedLines.push(line.replace(/^#### (.*)$/, '<h4>$1</h4>'));
+    } else if (line.match(/^### /)) {
+      if (inList) { processedLines.push(`</${listType}>`); inList = false; }
+      processedLines.push(line.replace(/^### (.*)$/, '<h3>$1</h3>'));
+    } else if (line.match(/^## /)) {
+      if (inList) { processedLines.push(`</${listType}>`); inList = false; }
+      processedLines.push(line.replace(/^## (.*)$/, '<h2>$1</h2>'));
+    } else if (line.match(/^# /)) {
+      if (inList) { processedLines.push(`</${listType}>`); inList = false; }
+      processedLines.push(line.replace(/^# (.*)$/, '<h1>$1</h1>'));
+    }
+    // Check for unordered list items
+    else if (line.match(/^\s*[-*+] /)) {
+      if (!inList || listType !== 'ul') {
+        if (inList) processedLines.push(`</${listType}>`);
+        processedLines.push('<ul>');
+        inList = true;
+        listType = 'ul';
+      }
+      processedLines.push(line.replace(/^\s*[-*+] (.+)$/, '<li>$1</li>'));
+    }
+    // Check for ordered list items
+    else if (line.match(/^\s*\d+\. /)) {
+      if (!inList || listType !== 'ol') {
+        if (inList) processedLines.push(`</${listType}>`);
+        processedLines.push('<ol>');
+        inList = true;
+        listType = 'ol';
+      }
+      processedLines.push(line.replace(/^\s*\d+\. (.+)$/, '<li>$1</li>'));
+    }
+    // Check for blockquotes (handle both raw > and escaped &gt;)
+    else if (line.match(/^(&gt;|>) /)) {
+      if (inList) { processedLines.push(`</${listType}>`); inList = false; }
+      // Convert to italic for citation styling, remove quotes if present
+      const content = line.replace(/^(&gt;|>) /, '').replace(/^"(.*)"$/, '$1').replace(/^&quot;(.*)&quot;$/, '$1');
+      processedLines.push(`<em class="citation-quote">${content}</em>`);
+    }
+    // Check for horizontal rules
+    else if (line.match(/^---$/)) {
+      if (inList) { processedLines.push(`</${listType}>`); inList = false; }
+      processedLines.push('<hr>');
+    }
+    // Regular text line
+    else {
+      // Empty line ends lists — but only if the next non-empty line isn't another list item
+      // (models often put blank lines between list items, which shouldn't break the list)
+      if (line.trim() === '' && inList) {
+        let nextNonEmpty = '';
+        for (let j = i + 1; j < lines.length; j++) {
+          if (lines[j].trim() !== '') { nextNonEmpty = lines[j]; break; }
+        }
+        const nextIsSameList = (listType === 'ol' && /^\s*\d+\. /.test(nextNonEmpty)) ||
+                               (listType === 'ul' && /^\s*[-*+] /.test(nextNonEmpty));
+        if (!nextIsSameList) {
+          processedLines.push(`</${listType}>`);
+          inList = false;
+          listType = null;
+        }
+      }
+      if (line.trim() !== '' || !inList) {
+        processedLines.push(line);
+      }
+    }
+  }
+
+  // Close any remaining structures
+  if (inList) {
+    processedLines.push(`</${listType}>`);
+  }
+  if (inTable) {
+    processedLines.push(processTableRows());
+  }
+  if (inCodeBlock) {
+    processedLines.push(`<pre><code class="language-${codeBlockLang}">${codeBlockContent.join('\n')}</code></pre>`);
+  }
+
+  // Join lines back together
+  let html = processedLines.join('\n');
+
+  // Apply inline formatting
+  html = html
+    // Markdown links [text](url) - must be before other formatting to preserve URLs
+    // Scheme allowlist (http, https, mailto, relative, anchors) prevents XSS via
+    // javascript:/data:/vbscript:/blob: URLs. Whitespace and control chars are
+    // stripped before the check because browsers normalize ASCII tab/CR/LF inside
+    // URL schemes when parsing href (e.g. `java\tscript:` resolves to `javascript:`).
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
+      const stripped = url.replace(/[\s\u0000-\u001F\u007F]+/g, '');
+      if (!/^(?:https?:|mailto:|#|\/|\.\/|\.\.\/)/i.test(stripped)) return text;
+      const safeHref = stripped.replace(/"/g, '&quot;');
+      return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+    })
+
+    // Bold text
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+
+    // Italic text (but not inside bold)
+    .replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, '<em>$1</em>')
+
+    // Inline code (but not inside code blocks)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+
+    // Convert paragraph breaks (double newlines)
+    .replace(/\n\n+/g, '</p><p>')
+
+    // Convert single newlines to breaks
+    .replace(/\n/g, '<br>');
+
+  // Wrap in paragraph tags, but not if already wrapped with block elements
+  if (!html.match(/^<[h1-6ul|ol|blockquote|pre|hr|div]/)) {
+    html = '<p>' + html + '</p>';
+  }
+
+  // Comprehensive cleanup - remove unwanted <br> tags systematically
+  html = html
+    // First pass: Remove paragraph wrappers around block elements
+    .replace(/<p><([h1-6ul|ol|blockquote|pre|hr|div])/g, '<$1')
+    .replace(/<\/([h1-6ul|ol|blockquote|pre|hr|div])><\/p>/g, '</$1>')
+
+    // Second pass: Comprehensive list cleanup - remove ALL breaks around/inside lists
+    .replace(/<ul>\s*<br>/g, '<ul>') // Remove breaks after list start
+    .replace(/<ol>\s*<br>/g, '<ol>') // Remove breaks after ordered list start
+    .replace(/<br>\s*<\/ul>/g, '</ul>') // Remove breaks before list end
+    .replace(/<br>\s*<\/ol>/g, '</ol>') // Remove breaks before ordered list end
+    .replace(/<\/ul>\s*<br>/g, '</ul>') // Remove breaks after list end
+    .replace(/<\/ol>\s*<br>/g, '</ol>') // Remove breaks after ordered list end
+    .replace(/<br>\s*<li>/g, '<li>') // Remove breaks before list items
+    .replace(/<\/li>\s*<br>/g, '</li>') // Remove breaks after list items
+    .replace(/<li>([^<]*)<br>/g, '<li>$1') // Remove breaks at end of list item content
+    .replace(/<br>\s*<\/li>/g, '</li>') // Remove breaks before list item end
+
+    // Third pass: Clean up breaks around other block elements
+    .replace(/<br>\s*<\/blockquote>/g, '</blockquote>')
+    .replace(/<\/blockquote>\s*<br>/g, '</blockquote>')
+    .replace(/<blockquote>\s*<br>/g, '<blockquote>')
+    .replace(/<br>\s*<h([1-6])>/g, '<h$1>')
+    .replace(/<\/h([1-6])>\s*<br>/g, '</h$1>')
+    .replace(/<h([1-6])>([^<]*)<br>/g, '<h$1>$2')
+
+    // Table cleanup - remove breaks around tables
+    .replace(/<br>\s*<div class="table-wrapper">/g, '<div class="table-wrapper">')
+    .replace(/<\/div>\s*<br>/g, '</div>')
+    .replace(/<br>\s*<table>/g, '<table>')
+    .replace(/<\/table>\s*<br>/g, '</table>')
+    .replace(/<br>\s*<thead>/g, '<thead>')
+    .replace(/<\/thead>\s*<br>/g, '</thead>')
+    .replace(/<br>\s*<tbody>/g, '<tbody>')
+    .replace(/<\/tbody>\s*<br>/g, '</tbody>')
+    .replace(/<br>\s*<tr>/g, '<tr>')
+    .replace(/<\/tr>\s*<br>/g, '</tr>')
+    .replace(/<br>\s*<th>/g, '<th>')
+    .replace(/<\/th>\s*<br>/g, '</th>')
+    .replace(/<br>\s*<td>/g, '<td>')
+    .replace(/<\/td>\s*<br>/g, '</td>')
+
+    // Fourth pass: Clean up paragraph and block element interactions
+    .replace(/<\/p>\s*<br>\s*<ul>/g, '</p><ul>')
+    .replace(/<\/p>\s*<br>\s*<ol>/g, '</p><ol>')
+    .replace(/<\/p>\s*<br>\s*<blockquote>/g, '</p><blockquote>')
+    .replace(/<\/p>\s*<br>\s*<h([1-6])>/g, '</p><h$1>')
+    .replace(/<\/p>\s*<br>\s*<div/g, '</p><div')
+    .replace(/<\/ul>\s*<br>\s*<p>/g, '</ul><p>')
+    .replace(/<\/ol>\s*<br>\s*<p>/g, '</ol><p>')
+    .replace(/<\/blockquote>\s*<br>\s*<p>/g, '</blockquote><p>')
+    .replace(/<\/h([1-6])>\s*<br>\s*<p>/g, '</h$1><p>')
+    .replace(/<\/div>\s*<br>\s*<p>/g, '</div><p>')
+
+    // Fifth pass: Remove multiple consecutive breaks and empty elements
+    .replace(/(<br>\s*){2,}/g, '<br>') // Multiple breaks become single break
+    .replace(/<p>\s*<\/p>/g, '') // Remove empty paragraphs
+    .replace(/<p>\s*(<br>\s*)+<\/p>/g, '') // Remove paragraphs with only breaks
+    .replace(/<p>(<br>\s*)+<\/p>/g, ''); // Alternative pattern for break-only paragraphs
+
+  // Enhance Bedrock's [n] citation markers with interactive tooltips (after all markdown processing)
+  if (sources && sources.length > 0) {
+    html = enhanceExistingCitationMarkers(html, sources);
+  }
+
+  return html;
+}
+
+window.parseMarkdown = parseMarkdown;
